@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.1.1
+
+- Rounded native selection highlights in Groups, Connected and shared-drive lists.
+- Clean group headings and a rounded empty-state card.
+- Removed obsolete prototype website, legacy UI and sample server configuration.
+
 ## 2.1.0
 
 - Native SwiftUI Mac interface with Liquid Glass, light and dark appearance.

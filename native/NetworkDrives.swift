@@ -130,6 +130,49 @@ struct GlassCard: ViewModifier {
     }
 }
 
+/// Keep native keyboard/mouse selection while drawing its highlight inside the card.
+struct CardSelectionAnchor: NSViewRepresentable {
+    final class Anchor: NSView {
+        func configure() {
+            var ancestor: NSView? = self
+            while let view = ancestor {
+                if let row = view as? NSTableRowView { row.selectionHighlightStyle = .none }
+                if let table = view as? NSTableView {
+                    table.selectionHighlightStyle = .none
+                    table.focusRingType = .none
+                }
+                ancestor = view.superview
+            }
+        }
+        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); configure() }
+        override func viewDidMoveToSuperview() { super.viewDidMoveToSuperview(); configure() }
+    }
+    func makeNSView(context: Context) -> Anchor { Anchor() }
+    func updateNSView(_ view: Anchor, context: Context) {
+        view.configure()
+        DispatchQueue.main.async { [weak view] in view?.configure() }
+    }
+}
+
+struct CardSelection: ViewModifier {
+    var selected: Bool
+    var radius: CGFloat
+    func body(content: Content) -> some View {
+        content
+            .background(CardSelectionAnchor().allowsHitTesting(false))
+            .overlay {
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .fill(Color.accentColor.opacity(selected ? 0.14 : 0))
+                    .allowsHitTesting(false)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .strokeBorder(Color.accentColor.opacity(selected ? 0.9 : 0), lineWidth: 1.5)
+                    .allowsHitTesting(false)
+            }
+    }
+}
+
 struct PillStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
     var primary = false
@@ -1028,34 +1071,46 @@ struct RootView: View {
             }
             if let message = store.libraryError { Text(message).font(.system(size: 12)).foregroundStyle(.orange) }
             List(selection: $store.librarySelection) {
-                Section("Groups") {
-                    if store.groups.isEmpty {
-                        Text("Create a group to connect a saved set of drives.").font(.system(size: 13)).foregroundStyle(.secondary).padding(.vertical, 16)
-                    }
-                    ForEach(store.groups) { group in
-                        groupCard(group).tag("group:" + group.id).listRowSeparator(.hidden).listRowBackground(Color.clear)
-                    }
+                Text("Groups").font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
+                    .padding(.top, 4).padding(.bottom, 2)
+                    .listRowSeparator(.hidden).listRowBackground(Color.clear)
+                    .accessibilityAddTraits(.isHeader)
+                if store.groups.isEmpty {
+                    Label("Create a group to connect your drives together.", systemImage: "square.stack.3d.up")
+                        .font(.system(size: 13)).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(20)
+                        .modifier(GlassCard(radius: 18))
+                        .listRowSeparator(.hidden).listRowBackground(Color.clear)
                 }
-                Section("Saved drives") {
-                    ForEach(store.rememberedDrives.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }) { drive in
-                        HStack(spacing: 12) {
-                            Image(systemName: "externaldrive").font(.system(size: 22)).foregroundStyle(.blue)
-                            VStack(alignment: .leading, spacing: 5) {
-                                Text(drive.name).font(.system(size: 13, weight: .medium)).lineLimit(1)
-                                Text(drive.serverName).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
-                            }
-                            Spacer()
-                            if store.isConnected(drive) {
-                                Label("Connected", systemImage: "checkmark.circle.fill").font(.system(size: 11)).foregroundStyle(.green)
-                            } else {
-                                Button("Connect") { Task { await store.connectSaved([drive], label: drive.name) } }
-                                    .buttonStyle(PillStyle()).disabled(store.working)
-                            }
-                        }.padding(16).modifier(GlassCard(radius: 18)).tag("drive:" + drive.id)
-                            .listRowSeparator(.hidden).listRowBackground(Color.clear)
-                    }
+                ForEach(store.groups) { group in
+                    groupCard(group)
+                            .modifier(CardSelection(selected: store.librarySelection.contains("group:" + group.id), radius: 24))
+                            .tag("group:" + group.id).listRowSeparator(.hidden).listRowBackground(Color.clear)
                 }
-            }.listStyle(.plain).scrollContentBackground(.hidden).disabled(store.working)
+                Text("Saved drives").font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
+                    .padding(.top, 12).padding(.bottom, 2)
+                    .listRowSeparator(.hidden).listRowBackground(Color.clear)
+                    .accessibilityAddTraits(.isHeader)
+                ForEach(store.rememberedDrives.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }) { drive in
+                    HStack(spacing: 12) {
+                        Image(systemName: "externaldrive").font(.system(size: 22)).foregroundStyle(.blue)
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(drive.name).font(.system(size: 13, weight: .medium)).lineLimit(1)
+                            Text(drive.serverName).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        Spacer()
+                        if store.isConnected(drive) {
+                            Label("Connected", systemImage: "checkmark.circle.fill").font(.system(size: 11)).foregroundStyle(.green)
+                        } else {
+                            Button("Connect") { Task { await store.connectSaved([drive], label: drive.name) } }
+                                .buttonStyle(PillStyle()).disabled(store.working)
+                        }
+                    }.padding(16).modifier(GlassCard(radius: 18))
+                        .modifier(CardSelection(selected: store.librarySelection.contains("drive:" + drive.id), radius: 18))
+                        .tag("drive:" + drive.id)
+                        .listRowSeparator(.hidden).listRowBackground(Color.clear)
+                }
+            }.listStyle(.inset(alternatesRowBackgrounds: false)).scrollContentBackground(.hidden).disabled(store.working)
                 .contextMenu(forSelectionType: String.self) { ids in libraryContext(ids) }
             if !store.librarySelection.isEmpty {
                 HStack {
@@ -1181,14 +1236,14 @@ struct RootView: View {
             List(selection: $store.selectedMountedIDs) {
                 ForEach(store.mountedVolumes) { volume in
                     mountedRow(volume).tag(volume.id)
-                        .overlay(RoundedRectangle(cornerRadius: 19).strokeBorder(store.selectedMountedIDs.contains(volume.id) ? Color.blue.opacity(0.75) : .clear, lineWidth: 1.5))
+                        .modifier(CardSelection(selected: store.selectedMountedIDs.contains(volume.id), radius: 19))
                         .listRowSeparator(.hidden).listRowBackground(Color.clear)
                 }
                 if store.mountedVolumes.isEmpty {
                     Text(store.refreshingMounted ? "Checking connected drives…" : "No network drives connected")
                         .foregroundStyle(.secondary).padding(30)
                 }
-            }.listStyle(.plain).scrollContentBackground(.hidden).disabled(store.working)
+            }.listStyle(.inset(alternatesRowBackgrounds: false)).scrollContentBackground(.hidden).disabled(store.working)
                 .contextMenu(forSelectionType: String.self) { ids in mountedContext(ids) }
             if !store.selectedMountedIDs.isEmpty {
                 HStack {
@@ -1283,12 +1338,13 @@ struct RootView: View {
             }
             List(selection: $store.selectedDrives) {
                 ForEach(server.drives) { drive in
-                    driveRow(drive).tag(drive.id).listRowSeparator(.hidden).listRowBackground(Color.clear)
+                    driveRow(drive).modifier(CardSelection(selected: store.selectedDrives.contains(drive.id), radius: 17))
+                        .tag(drive.id).listRowSeparator(.hidden).listRowBackground(Color.clear)
                 }
                 if server.drives.isEmpty {
                     Text("Choose Load drives to sign in and see shared drives.").font(.system(size: 13)).foregroundStyle(.secondary).padding(.vertical, 40)
                 }
-            }.listStyle(.plain).scrollContentBackground(.hidden).disabled(store.working)
+            }.listStyle(.inset(alternatesRowBackgrounds: false)).scrollContentBackground(.hidden).disabled(store.working)
                 .contextMenu(forSelectionType: String.self) { ids in
                     Button("Connect selected") { store.selectedDrives = ids; Task { await store.batch("mount") } }.disabled(ids.isEmpty)
                     Button("Eject selected") { store.selectedDrives = ids; Task { await store.batch("eject") } }.disabled(ids.isEmpty)
