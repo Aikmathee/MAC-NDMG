@@ -49,7 +49,6 @@ This release is ad-hoc signed and **not Apple-notarized**. macOS may block the f
 | `tests/` | Python service tests |
 | `scripts/` | Build, package and release tooling |
 | `docs/` | Installation, usage and development guides |
-| `website/` | Separate informational website |
 | `.github/workflows/` | Tests, builds and release publishing |
 
 [Development & build guide](docs/DEVELOPMENT.md) · [Release process](docs/RELEASING.md) · [Changelog](CHANGELOG.md)

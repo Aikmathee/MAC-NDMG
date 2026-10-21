@@ -1,16 +1,5 @@
 #!/usr/bin/env python3
-"""
-build_app.py - Bundle the macOS Network Drive Manager into a standalone .app.
-
-Supports two build backends:
-  1. Native SwiftUI app with a bundled Python service (default)
-  2. PyInstaller or py2app for the legacy Tkinter interface
-
-Usage:
-    python build_app.py                # native SwiftUI (default)
-    python build_app.py --backend py2app
-    python build_app.py --clean        # Remove previous build artefacts first
-"""
+"""Build the native macOS app with its bundled Python service."""
 
 from __future__ import annotations
 
@@ -24,9 +13,6 @@ import plistlib
 from pathlib import Path
 
 APP_NAME = "Network Drive Manager"
-ENTRY_POINT = "src/main.py"
-ICON_PATH = "assets/app_icon.icns"
-CONFIG_DATA = "config/shares.json"
 BUNDLE_ID = "com.studio.network-drive-manager"
 
 
@@ -87,77 +73,11 @@ def build_native():
     print(f"Native app created: {bundle}")
 
 
-def build_pyinstaller():
-    """Build using PyInstaller."""
-    cmd = [
-        sys.executable, "-m", "PyInstaller",
-        "--name", APP_NAME,
-        "--windowed",                       # .app bundle, no terminal
-        "--onedir",                         # directory bundle (faster start)
-        "--paths", os.path.dirname(os.path.abspath(__file__)),
-        "--osx-bundle-identifier", BUNDLE_ID,
-        "--noconfirm",                      # overwrite previous build
-        "--add-data", f"{CONFIG_DATA}:config",
-    ]
-
-    if os.path.exists(ICON_PATH):
-        cmd.extend(["--icon", ICON_PATH])
-
-    cmd.append(ENTRY_POINT)
-
-    print(f"Running: {' '.join(cmd)}\n")
-    subprocess.check_call(cmd)
-    print(f"\n✅  App bundle created at: dist/{APP_NAME}.app")
-
-
-def build_py2app():
-    """Build using py2app (requires a setup.py-style invocation)."""
-    setup_content = f'''
-from setuptools import setup
-
-APP = ["{ENTRY_POINT}"]
-DATA_FILES = [("config", ["{CONFIG_DATA}"])]
-OPTIONS = {{
-    "argv_emulation": False,
-    "plist": {{
-        "CFBundleName": "{APP_NAME}",
-        "CFBundleIdentifier": "{BUNDLE_ID}",
-        "CFBundleShortVersionString": "1.0.0",
-        "LSMinimumSystemVersion": "12.0",
-    }},
-    "packages": ["src"],
-}}
-
-{"ICONFILE = " + repr(ICON_PATH) if os.path.exists(ICON_PATH) else ""}
-
-setup(
-    app=APP,
-    data_files=DATA_FILES,
-    options={{"py2app": OPTIONS}},
-    setup_requires=["py2app"],
-)
-'''
-    setup_path = "_setup_py2app.py"
-    with open(setup_path, "w") as f:
-        f.write(setup_content)
-
-    try:
-        subprocess.check_call([sys.executable, setup_path, "py2app"])
-        print(f"\n✅  App bundle created at: dist/{APP_NAME}.app")
-    finally:
-        os.remove(setup_path)
-
-
 def main():
     os.chdir(Path(__file__).resolve().parent.parent)
     if sys.platform != "darwin":
         raise SystemExit("Build this application on macOS.")
     parser = argparse.ArgumentParser(description="Build macOS .app bundle")
-    parser.add_argument(
-        "--backend", choices=["native", "pyinstaller", "py2app"],
-        default="native",
-        help="Build backend (default: native SwiftUI; pyinstaller keeps the legacy Tk UI)",
-    )
     parser.add_argument(
         "--clean", action="store_true",
         help="Remove previous build artefacts before building",
@@ -168,12 +88,7 @@ def main():
         print("Cleaning previous build artefacts…")
         clean()
 
-    if args.backend == "native":
-        build_native()
-    elif args.backend == "pyinstaller":
-        build_pyinstaller()
-    else:
-        build_py2app()
+    build_native()
 
 
 if __name__ == "__main__":

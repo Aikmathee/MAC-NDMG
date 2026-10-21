@@ -39,3 +39,20 @@ Icon?
 
 # Logs
 *.log
+
+# Private local settings, credentials and exports
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.mobileprovision
+*.keychain*
+credentials*.json
+secrets*.json
+shares.local.json
+connections.json
+screenshots/
+local/

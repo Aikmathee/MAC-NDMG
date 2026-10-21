@@ -1,5 +1,5 @@
 """
-config_loader.py - Reads and parses config/shares.json.
+config_loader.py - Reads and writes the current user's saved servers.
 
 Provides a single function ``load_hosts()`` that returns a list of
 HostEntry objects from the JSON configuration file.
