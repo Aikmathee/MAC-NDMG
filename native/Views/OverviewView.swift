@@ -45,14 +45,21 @@ extension RootView {
         }
         .padding(.vertical, 14)
         .background {
-            Rectangle().fill(.regularMaterial)
+            Rectangle().fill(.ultraThinMaterial)
                 .padding(.horizontal, -34)
                 .padding(.bottom, -16)
                 .mask(LinearGradient(stops: [
-                    .init(color: .black, location: 0),
+                    .init(color: .clear, location: 0),
+                    .init(color: .black, location: 0.25),
                     .init(color: .black, location: 0.65),
                     .init(color: .clear, location: 1)
                 ], startPoint: .top, endPoint: .bottom))
+                .mask(LinearGradient(stops: [
+                    .init(color: .clear, location: 0),
+                    .init(color: .black, location: 0.06),
+                    .init(color: .black, location: 0.94),
+                    .init(color: .clear, location: 1)
+                ], startPoint: .leading, endPoint: .trailing))
                 .allowsHitTesting(false)
         }
     }

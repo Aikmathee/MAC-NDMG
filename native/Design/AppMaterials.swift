@@ -102,7 +102,7 @@ struct ScrollBoundaryTreatment: ViewModifier {
 
     private func veil(top: Bool) -> some View {
         Rectangle()
-            .fill(.regularMaterial)
+            .fill(.ultraThinMaterial)
             .overlay {
                 if reduceTransparency { Color(nsColor: .windowBackgroundColor) }
             }
