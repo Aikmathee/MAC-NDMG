@@ -54,3 +54,16 @@
 The detail viewport clips scrolled content below a visible native toolbar, so the page heading cannot overlap the window title. Server and drive lists share a 20–24 pt noninteractive material veil with a graduated alpha mask at each vertical edge. SDK 26 builds also request the system soft scroll edge style. The overview Servers section pins its heading with a material backdrop fading into the cards below. Semantic materials follow Light/Dark; Reduce Transparency uses an opaque semantic base. These layers do not intercept selection, keyboard navigation, context menus, or buttons.
 
 Validation: compatibility compilation targeting macOS 13 and 43 service tests passed. SDK 26.2 builds passed for Apple Silicon and Intel. On macOS 26, the distribution app was checked at the top and bottom of the overview and sidebar: scrolled headings remain below the toolbar. Light/Dark material edges and Command-click selection of two mounted drives were checked; no drives were connected or ejected. A final refinement uses thinner material and fades the Servers backdrop on all sides to avoid a rectangular band.
+
+
+## Native scroll boundaries and framed actions — 2.2.5
+
+This replaces the custom masked material veils described in the 2.2.2 section above. All fixed-height blur overlays, gradient masks, and the custom Servers heading backdrop have been removed.
+
+On macOS 26, custom control bars use SwiftUI `safeAreaBar` and scroll views request `.soft` scroll edge effects. macOS owns the blur extent and response to scrolling and accessibility settings. The sidebar's navigation stays outside its scrolling server list; only search and the footer register as adjacent bars, so server rows do not pass behind navigation labels. Content bars use the semantic window background for legibility; the sidebar keeps its system sidebar material. Older systems use `safeAreaInset` with standard backgrounds, without synthetic blur masks.
+
+Overview, Connected, Groups, server details, multiple-server selection, the group editor, and Activity use the shared approach. View all, Open, Eject, Add server, selection commands, and secondary actions have native bordered bezels. Primary actions retain the accent-colored system style. Navigation rows, disclosure controls, menu labels, and toolbar items keep their standard roles.
+
+SDK 26 builds and visual interaction checks cover scrolling, rounded native multi-selection, and both appearances. No authentication, connect, or eject operation was performed on user drives during these layout checks. Physical macOS 13–15 and a full VoiceOver walkthrough remain unverified as listed above.
+
+Apple references: [Adopting Liquid Glass](https://developer.apple.com/documentation/technologyoverviews/adopting-liquid-glass), [safeAreaBar](https://developer.apple.com/documentation/swiftui/view/safeareabar(edge:alignment:spacing:content:)), [scrollEdgeEffectStyle](https://developer.apple.com/documentation/swiftui/view/scrolledgeeffectstyle(_:for:)).

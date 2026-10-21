@@ -860,12 +860,15 @@ struct RootView: View {
     }
 
     var sidebar: some View {
-        serverSidebarList
-            .modifier(NativeSafeAreaBar(edge: .top) { sidebarHeader })
-            .modifier(NativeSafeAreaBar(edge: .bottom) { sidebarFooter })
+        VStack(spacing: 0) {
+            sidebarNavigation
+            serverSidebarList
+                .modifier(NativeSafeAreaBar(edge: .top, showsBackground: false) { sidebarSearch })
+                .modifier(NativeSafeAreaBar(edge: .bottom, showsBackground: false) { sidebarFooter })
+        }
     }
 
-    var sidebarHeader: some View {
+    var sidebarNavigation: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(spacing: 10) {
                 Image(systemName: "externaldrive.connected.to.line.below")
@@ -895,12 +898,16 @@ struct RootView: View {
                 }.font(.system(size: 13, weight: .medium)).padding(12)
                     .background(store.showingGroups ? Color.blue.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 12))
             }.buttonStyle(.plain).disabled(store.working || store.loading)
+        }.padding(.horizontal, 16).padding(.bottom, 12)
+    }
+
+    var sidebarSearch: some View {
             HStack(spacing: 7) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("Search servers", text: $store.search).textFieldStyle(.plain)
             }.font(.system(size: 12)).padding(10)
                 .background(.quaternary.opacity(0.45), in: Capsule())
-        }.padding(.horizontal, 16).padding(.bottom, 12)
+            .padding(.horizontal, 16).padding(.bottom, 12)
     }
 
     var sidebarFooter: some View {

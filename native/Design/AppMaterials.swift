@@ -110,16 +110,21 @@ struct NativeScrollEdges: ViewModifier {
 /// Register custom controls as real bars so macOS owns their scroll edge effect.
 struct NativeSafeAreaBar<Bar: View>: ViewModifier {
     var edge: VerticalEdge
+    var showsBackground = true
     @ViewBuilder var bar: Bar
+    @ViewBuilder private var barContent: some View {
+        if showsBackground { bar.background(Color(nsColor: .windowBackgroundColor)) }
+        else { bar }
+    }
     @ViewBuilder func body(content: Content) -> some View {
         #if MODERN_GLASS
         if #available(macOS 26, *) {
-            content.safeAreaBar(edge: edge, spacing: 0) { bar.background(.bar) }
+            content.safeAreaBar(edge: edge, spacing: 0) { barContent }
         } else {
-            content.safeAreaInset(edge: edge, spacing: 0) { bar.background(.bar) }
+            content.safeAreaInset(edge: edge, spacing: 0) { barContent }
         }
         #else
-        content.safeAreaInset(edge: edge, spacing: 0) { bar.background(.bar) }
+        content.safeAreaInset(edge: edge, spacing: 0) { barContent }
         #endif
     }
 }
