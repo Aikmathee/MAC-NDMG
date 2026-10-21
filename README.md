@@ -160,9 +160,9 @@ port 8888. `index.html` is a separate informational website, not a drive-control
 interface. SMB connections use port 445 on your NAS/server.
 
 1. Run `python3 -m src.main` on your Mac.
-2. Choose **Scan network** or **Add server**, then select a server.
-3. Enter that server's username/password and click **Find drives**.
-4. Select drives and click **Connect selected**. Finder may request permission.
+2. Choose **Refresh** or **Add server**, then select a server.
+3. Enter that server's username/password and click **Load drives**.
+4. Select drives and click **Connect**. Finder may request permission.
 5. Use **Open** to view a mounted drive, **Eject** to disconnect, and **Save
    server** to retain the server and its drive list.
 
@@ -201,3 +201,11 @@ python3 -m unittest discover -s tests -v
 These tests cover configuration persistence, clean-install behavior, SMB URL
 encoding, and parsing share names with spaces. A real NAS/server is needed for
 end-to-end discovery, authentication, mounting, and eject validation.
+
+### Interface
+
+The desktop uses a light two-column layout with one blue primary action.
+Server labels show the name and address without protocol tags. Sign-in fields
+have labels above them; the bottom bar shows the selection count. Connect and
+Eject become available when the selection supports the action. Activity history
+is collapsed by default and can be opened from the status bar.
