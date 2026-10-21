@@ -229,3 +229,37 @@ def unmount_share(share: ShareItem) -> bool:
         share.error_message = str(exc)
         log.exception("Error unmounting %s", share.name)
         return False
+
+
+def reveal_in_finder(mount_point: str) -> bool:
+    """Open a mounted volume folder directly in macOS Finder."""
+    try:
+        subprocess.run(["open", mount_point], check=True)
+        return True
+    except Exception as exc:
+        log.error("Failed to open %s in Finder: %s", mount_point, exc)
+        return False
+
+
+def open_server_in_finder(
+    host_or_ip: str,
+    username: Optional[str] = None,
+    password: Optional[str] = None,
+) -> bool:
+    """
+    Open the server in macOS Finder via `open smb://...`.
+    This brings up Finder's native 'Select volumes to mount' dialog.
+    """
+    if username and password:
+        uri = f"smb://{url_quote(username, safe='')}:{encode_password(password)}@{host_or_ip}"
+    elif username:
+        uri = f"smb://{url_quote(username, safe='')}@{host_or_ip}"
+    else:
+        uri = f"smb://{host_or_ip}"
+
+    try:
+        subprocess.run(["open", uri], check=True)
+        return True
+    except Exception as exc:
+        log.error("Failed to open server %s in Finder: %s", host_or_ip, exc)
+        return False
