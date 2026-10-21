@@ -1,4 +1,4 @@
-name: Build macOS app
+name: Build and release macOS app
 on:
   push:
     branches: [main, master]
@@ -7,19 +7,71 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
   build:
-    runs-on: macos-14
+    name: Build ${{ matrix.architecture }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            architecture: Apple-Silicon
+            cpu: arm64
+          - runner: macos-15-intel
+            architecture: Intel
+            cpu: x86_64
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m unittest discover -s tests -v
-      - run: python -m pip install -r requirements.txt
-      - run: python build_app.py
-      - run: ditto -c -k --sequesterRsrc --keepParent 'dist/Network Drive Manager.app' 'dist/Network-Drive-Manager-macOS.zip'
+      - name: Check architecture and release version
+        env:
+          EXPECTED_CPU: ${{ matrix.cpu }}
+        run: |
+          python -c 'import os, platform; assert platform.machine() == os.environ["EXPECTED_CPU"]'
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            test "$GITHUB_REF_NAME" = "v$(cat VERSION)"
+            test -f "docs/releases/$GITHUB_REF_NAME.md"
+          fi
+      - name: Test Python services
+        run: python -m unittest discover -s tests -v
+      - name: Install build tools
+        run: python -m pip install -r requirements.txt
+      - name: Build native app
+        run: python scripts/build_app.py
+      - name: Verify bundled service on a clean configuration
+        run: python scripts/verify_bundle.py
+      - name: Package DMG and ZIP
+        run: python scripts/package_release.py
       - uses: actions/upload-artifact@v4
         with:
-          name: Network-Drive-Manager-macOS
-          path: dist/Network-Drive-Manager-macOS.zip
+          name: Network-Drives-${{ matrix.architecture }}
+          path: dist/release/*
+          if-no-files-found: error
+          retention-days: 14
+  release:
+    name: Publish downloadable release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: Network-Drives-*
+          path: dist/release
+          merge-multiple: true
+      - name: Publish all verified downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/publish_release.py

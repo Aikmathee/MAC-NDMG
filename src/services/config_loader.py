@@ -35,7 +35,7 @@ def load_hosts(config_path: str | None = None) -> List[HostEntry]:
     ----------
     config_path : str or None
         Absolute or relative path to the JSON config file.
-        Falls back to ``config/shares.json`` in the project root if *None*.
+        Uses the current user's Application Support/MAC-NDMG/shares.json if *None*.
 
     Returns
     -------
