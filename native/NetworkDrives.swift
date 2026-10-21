@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-struct Drive: Codable, Identifiable, Equatable {
+struct Drive: Codable, Identifiable, Equatable, Sendable {
     var id: String
     var name: String
     var status: String
@@ -180,6 +180,11 @@ struct Service {
     }
 }
 
+struct AuthenticatedServer {
+    var credentials: ServerCredentials
+    var drives: [Drive]
+}
+
 @MainActor final class DriveStore: ObservableObject {
     @Published var servers: [Server] = []
     @Published var mountedVolumes: [MountedVolume] = []
@@ -201,6 +206,17 @@ struct Service {
     @Published var mountedError: String?
     @Published var ejectingVolumeID: String?
     @Published var selectedID: String?
+    @Published var selectedServerIDs = Set<String>()
+    @Published var selectedMountedIDs = Set<String>()
+    @Published var librarySelection = Set<String>()
+    @Published var authServer: Server?
+    @Published var authSubmitting = false
+    @Published var authError: String?
+    @Published var rememberAccount = false
+    @Published var rememberedAccountIDs = Set<String>()
+    private var sessionCredentials: [String: ServerCredentials] = [:]
+    private var authContinuation: CheckedContinuation<AuthenticatedServer?, Never>?
+    private var completedAuthentication: AuthenticatedServer?
     @Published var search = ""
     @Published var username = ""
     @Published var password = ""
@@ -227,6 +243,202 @@ struct Service {
     var connectedCount: Int { mountedVolumes.count }
     var connectedSelection: Bool { selected?.drives.contains { selectedDrives.contains($0.id) && $0.connected } ?? false }
 
+    func selectServers(_ ids: Set<String>) {
+        guard !working && !loading else { return }
+        selectedServerIDs = ids
+        selectedID = ids.count == 1 ? ids.first : nil
+        showingConnected = false; showingGroups = false
+        username = ""; password = ""; selectedDrives = []; error = nil
+    }
+    func serverClicked(_ server: Server) {
+        let flags = NSEvent.modifierFlags
+        if flags.contains(.command) {
+            var next = selectedServerIDs
+            if next.contains(server.id) { next.remove(server.id) } else { next.insert(server.id) }
+            selectServers(next)
+        } else if flags.contains(.shift), let anchor = selectedServerIDs.first,
+                  let a = visible.firstIndex(where: { $0.id == anchor }), let b = visible.firstIndex(where: { $0.id == server.id }) {
+            selectServers(Set(visible[min(a,b)...max(a,b)].map(\.id)))
+        } else { choose(server) }
+    }
+    func selectedServers(_ ids: Set<String>) -> [Server] { visible.filter { ids.contains($0.id) } }
+    func volumesForServers(_ ids: Set<String>) -> [MountedVolume] {
+        let targets = servers.filter { ids.contains($0.id) }
+        return mountedVolumes.filter { volume in targets.contains { volume.matches($0, share: volume.share) } }
+    }
+    func savedForServers(_ ids: Set<String>) -> [SavedDrive] {
+        let targets = servers.filter { ids.contains($0.id) }
+        return rememberedDrives.filter { drive in targets.contains { server in
+            drive.address.lowercased() == server.address.lowercased() ||
+            drive.serverName.lowercased() == server.name.lowercased()
+        } }
+    }
+    func savedForLibrary(_ ids: Set<String>) -> [SavedDrive] {
+        var driveIDs = Set(ids.filter { $0.hasPrefix("drive:") }.map { String($0.dropFirst(6)) })
+        for group in groups where ids.contains("group:" + group.id) { driveIDs.formUnion(group.driveIDs) }
+        return rememberedDrives.filter { driveIDs.contains($0.id) }
+    }
+    func volumesForSaved(_ drives: [SavedDrive]) -> [MountedVolume] {
+        mountedVolumes.filter { volume in drives.contains { $0.matches(volume) } }
+    }
+    func groupFromSaved(_ drives: [SavedDrive]) {
+        editGroup()
+        newGroupDriveIDs = Set(drives.map(\.id))
+    }
+    func groupFromMounted(_ ids: Set<String>) {
+        let volumes = mountedVolumes.filter { ids.contains($0.id) }
+        groupFromSaved(rememberedDrives.filter { drive in volumes.contains { drive.matches($0) } })
+    }
+    func ejectVolumes(_ volumes: [MountedVolume]) async {
+        guard !working && !loading && !volumes.isEmpty else { return }
+        working = true; stopConnecting = false; connectingLabel = "Ejecting drives"
+        defer { working = false; ejectingVolumeID = nil; connectingLabel = nil; Task { await refreshMounted() } }
+        var success = 0, failed = 0
+        for (index, volume) in volumes.enumerated() {
+            if stopConnecting { break }
+            ejectingVolumeID = volume.id
+            note("Ejecting \(index + 1) of \(volumes.count)…")
+            do {
+                let response = try await Service.request(["action": "eject_volume", "volume_id": volume.id])
+                if let values = response.volumes { applyMounted(values) }
+                applyLibrary(response)
+                if response.ok { success += 1 }
+                else { failed += 1; note("\(volume.name): \(response.error ?? "Could not eject drive")") }
+            } catch { failed += 1; note("\(volume.name): \(error.localizedDescription)") }
+        }
+        note("Ejected \(success) of \(volumes.count) drives" + (stopConnecting ? " · stopped" : ""))
+        if failed > 0 { error = "\(failed) drives could not be ejected. Close their open files and try again. See Activity for details." }
+    }
+    func credentialAddresses(_ server: Server) -> [String] {
+        Array(Set([server.address] + mountedVolumes.filter { $0.matches(server, share: $0.share) }.map(\.address)))
+    }
+    func persistAccount(_ credentials: ServerCredentials, server: Server, remember: Bool) async throws {
+        let current = credentialAddresses(server)
+        try await Task.detached {
+            let old = try CredentialVault.load(server.address)
+            let addresses = Array(Set(current + (old?.aliases ?? [])))
+            var stored = credentials
+            stored.aliases = addresses
+            for address in addresses {
+                if remember { try CredentialVault.save(stored, address: address) }
+                else { try CredentialVault.remove(address) }
+            }
+        }.value
+    }
+    func syncAccountAliases(_ server: Server, credentials: ServerCredentials) async {
+        guard rememberedAccountIDs.contains(server.id) else { return }
+        do {
+            let response = try await Service.request(["action": "mounted"])
+            if let volumes = response.volumes { applyMounted(volumes) }
+            try await persistAccount(credentials, server: server, remember: true)
+        } catch { note("Connected, but saved account aliases could not be updated.") }
+    }
+    func forgetAccount(_ server: Server) async {
+        do {
+            try await persistAccount(ServerCredentials(username: "", password: ""), server: server, remember: false)
+            sessionCredentials.removeValue(forKey: server.id)
+            rememberedAccountIDs.remove(server.id)
+            note("Saved account removed")
+        } catch { report(error.localizedDescription) }
+    }
+    func authenticate(_ server: Server, forcePrompt: Bool = false) async -> AuthenticatedServer? {
+        var credentials = sessionCredentials[server.id]
+        var message: String?
+        if credentials == nil {
+            do {
+                credentials = try await Task.detached { try CredentialVault.load(server.address) }.value
+                if credentials != nil { rememberedAccountIDs.insert(server.id) }
+            } catch { message = "Saved account is unavailable. Sign in again." }
+        }
+        if !forcePrompt, let credentials {
+            do {
+                let response = try await Service.request(["action": "shares", "address": server.address, "name": server.name,
+                                                         "username": credentials.username, "password": credentials.password])
+                if response.ok {
+                    sessionCredentials[server.id] = credentials
+                    return AuthenticatedServer(credentials: credentials, drives: response.drives ?? [])
+                }
+                message = response.error ?? "Sign in again to this server."
+            } catch { message = "Could not reach this server. Check the network and try again." }
+        }
+        username = credentials?.username ?? ""
+        password = forcePrompt ? credentials?.password ?? "" : ""
+        rememberAccount = rememberedAccountIDs.contains(server.id)
+        authError = message
+        authServer = server
+        return await withCheckedContinuation { authContinuation = $0 }
+    }
+    func cancelAuthentication() {
+        completedAuthentication = nil
+        authServer = nil
+    }
+    func authenticationDismissed() {
+        let continuation = authContinuation
+        let result = completedAuthentication
+        authContinuation = nil; completedAuthentication = nil
+        password = ""; authError = nil
+        continuation?.resume(returning: result)
+    }
+    func submitAuthentication() async {
+        guard let server = authServer, !authSubmitting else { return }
+        authSubmitting = true; authError = nil
+        defer { authSubmitting = false }
+        let credentials = ServerCredentials(username: username.trimmingCharacters(in: .whitespacesAndNewlines), password: password)
+        do {
+            let response = try await Service.request(["action": "shares", "address": server.address, "name": server.name,
+                                                     "username": credentials.username, "password": credentials.password])
+            guard response.ok else { authError = response.error ?? "Check your username and password."; return }
+            let remember = rememberAccount
+            do {
+                try await persistAccount(credentials, server: server, remember: remember)
+                if remember { rememberedAccountIDs.insert(server.id) } else { rememberedAccountIDs.remove(server.id) }
+            } catch { note("Signed in, but the saved account could not be updated in Keychain.") }
+            sessionCredentials[server.id] = credentials
+            completedAuthentication = AuthenticatedServer(credentials: credentials, drives: response.drives ?? [])
+            authServer = nil; password = ""
+        } catch { authError = "Could not reach this server. Check the network and try again." }
+    }
+    func browseServer(forcePrompt: Bool = false) async {
+        guard let server = selected, !working && !loading else { return }
+        working = true
+        defer { working = false }
+        guard let result = await authenticate(server, forcePrompt: forcePrompt) else { return }
+        if let index = servers.firstIndex(where: { $0.id == server.id }) {
+            servers[index].drives = result.drives
+            loadedServers.insert(server.id)
+            selectedDrives = Set(result.drives.filter { !$0.connected }.map(\.id))
+            note("\(result.drives.count) drives available")
+        }
+    }
+    func connectServers(_ ids: Set<String>) async {
+        let targets = servers.filter { ids.contains($0.id) }
+        guard !working && !loading && !targets.isEmpty else { return }
+        working = true; stopConnecting = false; connectingLabel = "Connecting servers"
+        defer { working = false; connectingLabel = nil; Task { await refreshMounted() } }
+        var succeeded = 0, failed = 0
+        for server in targets {
+            if stopConnecting { break }
+            note("Connecting to \(server.name)…")
+            guard let result = await authenticate(server) else { stopConnecting = true; break }
+            if let index = servers.firstIndex(where: { $0.id == server.id }) {
+                servers[index].drives = result.drives
+                loadedServers.insert(server.id)
+            }
+            for drive in result.drives {
+                if stopConnecting { break }
+                if drive.connected { succeeded += 1; continue }
+                do {
+                    let response = try await Service.request(["action": "mount", "address": server.address, "name": server.name,
+                        "share": drive.name, "username": result.credentials.username, "password": result.credentials.password])
+                    if response.ok { succeeded += 1 }
+                    else { failed += 1; note("\(server.name) · \(drive.name): \(response.error ?? "Could not connect")") }
+                } catch { failed += 1; note("\(drive.name): \(error.localizedDescription)") }
+            }
+            await syncAccountAliases(server, credentials: result.credentials)
+        }
+        note("\(succeeded) connected · \(failed) failed" + (stopConnecting ? " · stopped" : ""))
+        if failed > 0 { error = "Some drives could not be connected. See Activity for details." }
+    }
     func start() async {
         guard !started else { return }
         started = true
@@ -309,7 +521,11 @@ struct Service {
             if stopConnecting { break }
             note("\(label): \(processed + 1) of \(pending.count)…")
             do {
-                let response = try await Service.request(["action": "reconnect", "drive_id": drive.id])
+                var payload: [String: Any] = ["action": "reconnect", "drive_id": drive.id]
+                if let credentials = try? await Task.detached(operation: { try CredentialVault.load(drive.address) }).value {
+                    payload["username"] = credentials.username; payload["password"] = credentials.password
+                }
+                let response = try await Service.request(payload)
                 if let volumes = response.volumes { applyMounted(volumes) }
                 if response.ok && response.connectionState == "connected" { connected += 1 }
                 else if response.ok && response.connectionState == "waiting" { waiting += 1 }
@@ -349,6 +565,7 @@ struct Service {
     }
     func applyMounted(_ volumes: [MountedVolume]) {
         mountedVolumes = volumes
+        selectedMountedIDs.formIntersection(Set(volumes.map(\.id)))
         for index in servers.indices {
             for row in servers[index].drives.indices {
                 let found = volumes.contains { $0.matches(servers[index], share: servers[index].drives[row].name) }
@@ -362,19 +579,7 @@ struct Service {
         choose(nil)
         showingConnected = true
     }
-    func ejectMounted(_ volume: MountedVolume) async {
-        guard !working && !loading else { return }
-        working = true
-        ejectingVolumeID = volume.id
-        defer { working = false; ejectingVolumeID = nil }
-        note("Ejecting \(volume.name)…")
-        do {
-            let response = try await Service.request(["action": "eject_volume", "volume_id": volume.id])
-            if let volumes = response.volumes { applyMounted(volumes) }
-            if response.ok { note("Ejected \(volume.name)") }
-            else { report(response.error ?? "The drive is in use. Close its files and try again.") }
-        } catch { report(error.localizedDescription) }
-    }
+    func ejectMounted(_ volume: MountedVolume) async { await ejectVolumes([volume]) }
     func openMounted(_ volume: MountedVolume) async {
         do {
             let response = try await Service.request(["action": "reveal_volume", "volume_id": volume.id])
@@ -417,6 +622,7 @@ struct Service {
         showingConnected = false
         showingGroups = false
         selectedID = server?.id
+        selectedServerIDs = server.map { [$0.id] } ?? []
         password = ""
         username = ""
         selectedDrives = []
@@ -441,22 +647,7 @@ struct Service {
         showingAdd = false
         newName = ""; newAddress = ""
     }
-    func load() async {
-        guard let server = selected, !loading && !working else { return }
-        loading = true; error = nil
-        note("Loading drives…")
-        defer { loading = false }
-        do {
-            let response = try await Service.request(["action": "shares", "address": server.address, "name": server.name, "username": username, "password": password])
-            guard response.ok else { report(response.error ?? "Check your sign-in details."); return }
-            if let index = servers.firstIndex(where: { $0.id == server.id }) {
-                servers[index].drives = response.drives ?? []
-                loadedServers.insert(server.id)
-                selectedDrives = Set((response.drives ?? []).filter { !$0.connected }.map(\.id))
-                note("\(response.drives?.count ?? 0) drives available")
-            }
-        } catch { report(error.localizedDescription) }
-    }
+    func load() async { await browseServer() }
     func save() async {
         guard let server = selected else { return }
         do {
@@ -467,24 +658,28 @@ struct Service {
     }
     func batch(_ action: String) async {
         guard let server = selected, !working && !loading else { return }
-        let targets = server.drives.filter { selectedDrives.contains($0.id) && (action != "eject" || $0.connected) }
-        guard !targets.isEmpty else { return }
-        working = true; error = nil
-        defer { working = false; password = ""; Task { await refreshMounted() } }
-        let user = username, secret = password
-        var success = 0
-        for (offset, drive) in targets.enumerated() {
-            note("\(action == "eject" ? "Ejecting" : "Connecting") \(offset + 1) of \(targets.count)…")
-            do {
-                let response = try await Service.request(["action": action, "address": server.address, "name": server.name, "share": drive.name, "username": user, "password": secret])
-                if let updated = response.drives?.first, let index = servers.firstIndex(where: { $0.id == server.id }), let row = servers[index].drives.firstIndex(where: { $0.id == drive.id }) {
-                    servers[index].drives[row] = updated
-                }
-                if response.ok { success += 1 }
-                else { report(response.error?.isEmpty == false ? response.error! : "Could not \(action == "mount" ? "connect to" : "eject") \(drive.name).") }
-            } catch { report(error.localizedDescription) }
+        let targets = server.drives.filter { selectedDrives.contains($0.id) }
+        if action == "eject" {
+            await ejectVolumes(mountedVolumes.filter { volume in targets.contains { volume.matches(server, share: $0.name) } })
+            return
         }
-        note("\(action == "eject" ? "Ejected" : "Connected") \(success) of \(targets.count) drives")
+        guard !targets.isEmpty else { return }
+        working = true; connectingLabel = "Connecting drives"; stopConnecting = false
+        defer { working = false; connectingLabel = nil; Task { await refreshMounted() } }
+        guard let auth = await authenticate(server) else { return }
+        var success = 0
+        for drive in targets {
+            if stopConnecting { break }
+            note("Connecting \(drive.name)…")
+            do {
+                let response = try await Service.request(["action": "mount", "address": server.address, "name": server.name,
+                    "share": drive.name, "username": auth.credentials.username, "password": auth.credentials.password])
+                if response.ok { success += 1 }
+                else { note("\(drive.name): \(response.error ?? "Could not connect")") }
+            } catch { note("\(drive.name): \(error.localizedDescription)") }
+        }
+        await syncAccountAliases(server, credentials: auth.credentials)
+        note("Connected \(success) of \(targets.count) drives")
     }
     func finder(_ drive: Drive? = nil) async {
         guard let server = selected else { return }
@@ -521,7 +716,7 @@ struct RootView: View {
                 Color(nsColor: .windowBackgroundColor)
                 LinearGradient(colors: [Color.blue.opacity(0.055), .clear, Color.teal.opacity(0.035)], startPoint: .topLeading, endPoint: .bottomTrailing)
                 VStack(spacing: 0) {
-                    if store.showingGroups { groupsPage } else if store.showingConnected { connectedPage } else if let server = store.selected { detail(server) } else { home }
+                    if store.selectedServerIDs.count > 1 { multiServerPage } else if store.showingGroups { groupsPage } else if store.showingConnected { connectedPage } else if let server = store.selected { detail(server) } else { home }
                     statusBar
                 }
             }
@@ -536,6 +731,7 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await store.refreshMounted() }
         }
+        .sheet(item: $store.authServer, onDismiss: { store.authenticationDismissed() }) { server in authenticationSheet(server) }
         .sheet(isPresented: $store.showingGroupEditor) { groupEditor }
         .confirmationDialog("Delete group?", isPresented: Binding(get: { store.pendingDeleteGroup != nil }, set: { if !$0 { store.pendingDeleteGroup = nil } })) {
             if let group = store.pendingDeleteGroup {
@@ -553,6 +749,140 @@ struct RootView: View {
         } message: { Text(store.error ?? "") }
     }
 
+    var serverSidebarList: some View {
+        List(selection: Binding(get: { store.selectedServerIDs }, set: { store.selectServers($0) })) {
+            Section("Servers") {
+                ForEach(store.visible) { server in
+                    HStack(spacing: 9) {
+                        Image(systemName: server.symbol).font(.system(size: 18)).foregroundStyle(.blue).frame(width: 24)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(server.name).font(.system(size: 12, weight: .medium)).lineLimit(2)
+                            Text(server.address).font(.system(size: 10)).foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 0)
+                        if server.saved { Image(systemName: "star.fill").font(.system(size: 9)).foregroundStyle(.secondary) }
+                    }.padding(.vertical, 7).tag(server.id)
+                }
+            }
+        }.listStyle(.sidebar).scrollContentBackground(.hidden)
+            .disabled(store.working || store.loading)
+            .contextMenu(forSelectionType: String.self) { ids in serverContext(ids) }
+    }
+
+    @ViewBuilder func serverContext(_ ids: Set<String>) -> some View {
+        Button("Connect selected servers (\(ids.count))") { Task { await store.connectServers(ids) } }
+            .disabled(ids.isEmpty || store.working)
+        Button("Eject drives on selected servers (\(store.volumesForServers(ids).count))") {
+            Task { await store.ejectVolumes(store.volumesForServers(ids)) }
+        }.disabled(store.volumesForServers(ids).isEmpty || store.working)
+        Button("Save selection as group…") { store.groupFromSaved(store.savedForServers(ids)) }
+            .disabled(store.savedForServers(ids).isEmpty || store.working)
+        Divider()
+        Button("Select all servers") { store.selectServers(Set(store.visible.map(\.id))) }
+        Button("Connect all servers…") { Task { await store.connectServers(Set(store.visible.map(\.id))) } }
+            .disabled(store.working || store.visible.isEmpty)
+        Button("Eject all connected drives (\(store.mountedVolumes.count))") {
+            Task { await store.ejectVolumes(store.mountedVolumes) }
+        }.disabled(store.mountedVolumes.isEmpty || store.working)
+    }
+
+    var multiServerPage: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            HStack {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("\(store.selectedServerIDs.count) servers selected").font(.system(size: 26, weight: .bold, design: .rounded))
+                    Text("Connect their shared drives together, or eject their connected drives.")
+                        .font(.system(size: 13)).foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            HStack {
+                Button { Task { await store.connectServers(store.selectedServerIDs) } } label: {
+                    Label("Connect all", systemImage: "link")
+                }.buttonStyle(PillStyle(primary: true)).disabled(store.working)
+                Button("Eject all") { Task { await store.ejectVolumes(store.volumesForServers(store.selectedServerIDs)) } }
+                    .buttonStyle(PillStyle()).disabled(store.working || store.volumesForServers(store.selectedServerIDs).isEmpty)
+                Button("Save as group…") { store.groupFromSaved(store.savedForServers(store.selectedServerIDs)) }
+                    .buttonStyle(PillStyle()).disabled(store.working || store.savedForServers(store.selectedServerIDs).isEmpty)
+            }
+            ScrollView {
+                VStack(spacing: 12) {
+                    ForEach(store.selectedServers(store.selectedServerIDs)) { server in
+                        HStack(spacing: 14) {
+                            Image(systemName: server.symbol).font(.system(size: 25)).foregroundStyle(.blue)
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(server.name).font(.system(size: 15, weight: .semibold))
+                                Text(server.address).font(.system(size: 12)).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text("\(store.volumesForServers([server.id]).count) connected").font(.system(size: 12)).foregroundStyle(.secondary)
+                        }.padding(20).modifier(GlassCard(radius: 18))
+                            .contextMenu { serverContext(store.selectedServerIDs) }
+                    }
+                }
+            }
+            Text("⌘-click to add a server · Shift-click to select a range · Control-click for actions")
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+        }.padding(30)
+    }
+
+    @ViewBuilder func mountedContext(_ ids: Set<String>) -> some View {
+        Button("Eject selected (\(ids.count))") {
+            Task { await store.ejectVolumes(store.mountedVolumes.filter { ids.contains($0.id) }) }
+        }.disabled(ids.isEmpty || store.working)
+        Button("Save selection as group…") { store.groupFromMounted(ids) }.disabled(ids.isEmpty || store.working)
+        Divider()
+        Button("Select all") { store.selectedMountedIDs = Set(store.mountedVolumes.map(\.id)) }
+        Button("Deselect all") { store.selectedMountedIDs = [] }
+        Divider()
+        Button("Eject all (\(store.mountedVolumes.count))") { Task { await store.ejectVolumes(store.mountedVolumes) } }
+            .disabled(store.mountedVolumes.isEmpty || store.working)
+    }
+
+    @ViewBuilder func libraryContext(_ ids: Set<String>) -> some View {
+        Button("Connect selection") { Task { await store.connectSaved(store.savedForLibrary(ids), label: "Selected drives") } }
+            .disabled(store.savedForLibrary(ids).isEmpty || store.working)
+        Button("Eject selection") { Task { await store.ejectVolumes(store.volumesForSaved(store.savedForLibrary(ids))) } }
+            .disabled(store.volumesForSaved(store.savedForLibrary(ids)).isEmpty || store.working)
+        Button("Save selection as new group…") { store.groupFromSaved(store.savedForLibrary(ids)) }
+            .disabled(store.savedForLibrary(ids).isEmpty || store.working)
+        Divider()
+        Button("Select all saved drives") { store.librarySelection = Set(store.rememberedDrives.map { "drive:" + $0.id }) }
+        Button("Deselect all") { store.librarySelection = [] }
+        Button("Connect all saved drives") { Task { await store.connectSaved(store.rememberedDrives, label: "All saved drives") } }
+            .disabled(store.rememberedDrives.isEmpty || store.working)
+        Button("Eject all connected drives") { Task { await store.ejectVolumes(store.mountedVolumes) } }
+            .disabled(store.mountedVolumes.isEmpty || store.working)
+    }
+
+    func authenticationSheet(_ server: Server) -> some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Image(systemName: "lock.shield").font(.system(size: 30, weight: .light)).foregroundStyle(.blue)
+            VStack(alignment: .leading, spacing: 7) {
+                Text("Connect to \(server.name)").font(.system(size: 22, weight: .bold, design: .rounded))
+                Text(server.address).font(.system(size: 12)).foregroundStyle(.secondary)
+            }
+            field("Username") { TextField("Username", text: $store.username).textContentType(.username) }
+            field("Password") {
+                SecureField("Password", text: $store.password).textContentType(.password)
+                    .onSubmit { Task { await store.submitAuthentication() } }
+            }
+            Toggle("Remember this server", isOn: $store.rememberAccount).toggleStyle(.checkbox)
+            Text("Your account is saved securely in this Mac’s Keychain.")
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+            if let message = store.authError {
+                Text(message).font(.system(size: 12)).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
+            }
+            HStack {
+                Button("Cancel") { store.cancelAuthentication() }.buttonStyle(PillStyle()).keyboardShortcut(.cancelAction)
+                Spacer()
+                if store.authSubmitting { ProgressView().controlSize(.small) }
+                Button(store.authSubmitting ? "Connecting…" : "Continue") { Task { await store.submitAuthentication() } }
+                    .buttonStyle(PillStyle(primary: true)).keyboardShortcut(.defaultAction)
+            }
+        }.padding(30).frame(width: 420).disabled(store.authSubmitting)
+            .interactiveDismissDisabled(store.authSubmitting)
+    }
     var sidebar: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(spacing: 10) {
@@ -564,7 +894,7 @@ struct RootView: View {
                 Label("Overview", systemImage: "square.grid.2x2")
                     .font(.system(size: 13, weight: .medium))
                     .frame(maxWidth: .infinity, alignment: .leading).padding(12)
-                    .background(store.selectedID == nil && !store.showingConnected && !store.showingGroups ? Color.blue.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 12))
+                    .background(store.selectedServerIDs.isEmpty && !store.showingConnected && !store.showingGroups ? Color.blue.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 12))
             }.buttonStyle(.plain).disabled(store.working || store.loading)
             Button { store.showConnected() } label: {
                 HStack {
@@ -588,31 +918,7 @@ struct RootView: View {
                 TextField("Search servers", text: $store.search).textFieldStyle(.plain)
             }.font(.system(size: 12)).padding(10)
                 .background(.quaternary.opacity(0.45), in: Capsule())
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 5) {
-                    Text("SERVERS").font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary).padding(.horizontal, 10).padding(.bottom, 6)
-                    ForEach(store.visible) { server in
-                        Button { store.choose(server) } label: {
-                            HStack(spacing: 10) {
-                                Image(systemName: server.symbol).font(.system(size: 18)).foregroundStyle(store.selectedID == server.id ? .blue : .secondary)
-                                    .frame(width: 24)
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(server.name).font(.system(size: 12, weight: .medium)).lineLimit(2)
-                                    Text(server.address).font(.system(size: 10)).foregroundStyle(.secondary)
-                                }
-                                Spacer(minLength: 0)
-                                if server.saved { Image(systemName: "star.fill").font(.system(size: 9)).foregroundStyle(.secondary) }
-                            }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
-                                .background(store.selectedID == server.id ? Color.blue.opacity(0.13) : .clear, in: RoundedRectangle(cornerRadius: 12))
-                                .contentShape(RoundedRectangle(cornerRadius: 12))
-                        }.buttonStyle(.plain).disabled(store.working || store.loading)
-                    }
-                    if store.visible.isEmpty {
-                        Text(store.search.isEmpty ? "Servers appear here." : "No matching servers.")
-                            .font(.system(size: 12)).foregroundStyle(.secondary).padding(10)
-                    }
-                }
-            }
+            serverSidebarList
             Button { store.showingAdd = true } label: {
                 Label("Add server", systemImage: "plus").frame(maxWidth: .infinity)
             }.buttonStyle(PillStyle()).disabled(store.working || store.loading).keyboardShortcut("k", modifiers: .command)
@@ -679,9 +985,10 @@ struct RootView: View {
                 } else {
                     LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 14) {
                         ForEach(store.visible) { server in
-                            Button { store.choose(server) } label: { serverCard(server) }
+                            Button { store.serverClicked(server) } label: { serverCard(server) }
                                 .buttonStyle(.plain)
                                 .accessibilityLabel("\(server.name), \(server.address)")
+                                .contextMenu { serverContext(store.selectedServerIDs.contains(server.id) ? store.selectedServerIDs : [server.id]) }
                         }
                     }
                 }
@@ -690,41 +997,28 @@ struct RootView: View {
     }
 
     var groupsPage: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 7) {
-                        Text("Groups").font(.system(size: 28, weight: .bold, design: .rounded))
-                        Text("Your saved sets of drives. Connect when you need them.")
-                            .font(.system(size: 13)).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Button { store.editGroup() } label: { Label("New group", systemImage: "plus") }
-                        .buttonStyle(PillStyle(primary: true)).disabled(store.working || store.rememberedDrives.isEmpty)
-                }
-                if let message = store.libraryError {
-                    Text(message).font(.system(size: 12)).foregroundStyle(.orange)
-                }
-                if store.groups.isEmpty {
-                    VStack(spacing: 12) {
-                        Image(systemName: "square.stack.3d.up").font(.system(size: 32, weight: .light)).foregroundStyle(.blue)
-                        Text("Keep your drives together").font(.system(size: 16, weight: .semibold))
-                        Text("Create a group from the drives below, then connect the whole set with one click.")
-                            .font(.system(size: 12)).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                    }.frame(maxWidth: .infinity).padding(30).modifier(GlassCard())
-                } else {
-                    ForEach(store.groups) { group in groupCard(group) }
-                }
+        VStack(alignment: .leading, spacing: 18) {
+            HStack {
                 VStack(alignment: .leading, spacing: 7) {
-                    Text("Saved drives").font(.system(size: 17, weight: .semibold))
-                    Text("Drives you've connected to on this Mac. Finder handles sign-in when needed.")
+                    Text("Groups & saved drives").font(.system(size: 26, weight: .bold, design: .rounded))
+                    Text("⌘-click to combine groups or drives · Control-click for actions")
                         .font(.system(size: 12)).foregroundStyle(.secondary)
                 }
-                if store.rememberedDrives.isEmpty {
-                    Text("Connect an SMB drive here or in Finder to get started.")
-                        .font(.system(size: 13)).foregroundStyle(.secondary).padding(.vertical, 20)
+                Spacer()
+                Button { store.editGroup() } label: { Label("New group", systemImage: "plus") }
+                    .buttonStyle(PillStyle(primary: true)).disabled(store.working || store.rememberedDrives.isEmpty)
+            }
+            if let message = store.libraryError { Text(message).font(.system(size: 12)).foregroundStyle(.orange) }
+            List(selection: $store.librarySelection) {
+                Section("Groups") {
+                    if store.groups.isEmpty {
+                        Text("Create a group to connect a saved set of drives.").font(.system(size: 13)).foregroundStyle(.secondary).padding(.vertical, 16)
+                    }
+                    ForEach(store.groups) { group in
+                        groupCard(group).tag("group:" + group.id).listRowSeparator(.hidden).listRowBackground(Color.clear)
+                    }
                 }
-                LazyVStack(spacing: 10) {
+                Section("Saved drives") {
                     ForEach(store.rememberedDrives.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }) { drive in
                         HStack(spacing: 12) {
                             Image(systemName: "externaldrive").font(.system(size: 22)).foregroundStyle(.blue)
@@ -737,15 +1031,27 @@ struct RootView: View {
                                 Label("Connected", systemImage: "checkmark.circle.fill").font(.system(size: 11)).foregroundStyle(.green)
                             } else {
                                 Button("Connect") { Task { await store.connectSaved([drive], label: drive.name) } }
-                                    .buttonStyle(PillStyle()).disabled(store.working || store.loading)
+                                    .buttonStyle(PillStyle()).disabled(store.working)
                             }
-                        }.padding(16).modifier(GlassCard(radius: 18))
+                        }.padding(16).modifier(GlassCard(radius: 18)).tag("drive:" + drive.id)
+                            .listRowSeparator(.hidden).listRowBackground(Color.clear)
                     }
                 }
-            }.padding(30)
-        }
+            }.listStyle(.plain).scrollContentBackground(.hidden).disabled(store.working)
+                .contextMenu(forSelectionType: String.self) { ids in libraryContext(ids) }
+            if !store.librarySelection.isEmpty {
+                HStack {
+                    Text("\(store.savedForLibrary(store.librarySelection).count) selected").font(.system(size: 12)).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Save as group…") { store.groupFromSaved(store.savedForLibrary(store.librarySelection)) }.buttonStyle(PillStyle())
+                    Button("Eject") { Task { await store.ejectVolumes(store.volumesForSaved(store.savedForLibrary(store.librarySelection))) } }
+                        .buttonStyle(PillStyle()).disabled(store.working || store.volumesForSaved(store.savedForLibrary(store.librarySelection)).isEmpty)
+                    Button("Connect") { Task { await store.connectSaved(store.savedForLibrary(store.librarySelection), label: "Selection") } }
+                        .buttonStyle(PillStyle(primary: true)).disabled(store.working)
+                }
+            }
+        }.padding(30)
     }
-
     func groupCard(_ group: DriveGroup) -> some View {
         let drives = store.drivesForGroup(group)
         let connected = drives.filter { store.isConnected($0) }.count
@@ -758,6 +1064,10 @@ struct RootView: View {
                 }
                 Spacer()
                 Menu {
+                    Button("Connect group") { Task { await store.connectSaved(store.drivesForGroup(group), label: group.name) } }
+                    Button("Eject group") { Task { await store.ejectVolumes(store.volumesForSaved(store.drivesForGroup(group))) } }
+                        .disabled(store.volumesForSaved(store.drivesForGroup(group)).isEmpty)
+                    Divider()
                     Button("Edit group") { store.editGroup(group) }
                     Button("Delete group", role: .destructive) { store.pendingDeleteGroup = group }
                 } label: { Image(systemName: "ellipsis").padding(8) }
@@ -767,7 +1077,10 @@ struct RootView: View {
             Text(drives.prefix(4).map { "\($0.name) · \($0.serverName)" }.joined(separator: "\n") + (drives.count > 4 ? "\n+\(drives.count - 4) more" : ""))
                 .font(.system(size: 12)).foregroundStyle(.secondary).lineSpacing(5)
             HStack {
-                Text("Connect manually").font(.system(size: 11)).foregroundStyle(.tertiary)
+                if connected > 0 {
+                    Button("Eject group") { Task { await store.ejectVolumes(store.volumesForSaved(drives)) } }
+                        .buttonStyle(PillStyle()).disabled(store.working)
+                }
                 Spacer()
                 Button {
                     Task { await store.connectSaved(drives, label: group.name) }
@@ -827,40 +1140,50 @@ struct RootView: View {
     }
 
     var connectedPage: some View {
-        VStack(alignment: .leading, spacing: 22) {
+        VStack(alignment: .leading, spacing: 18) {
             HStack {
                 VStack(alignment: .leading, spacing: 7) {
                     Text("Connected drives").font(.system(size: 28, weight: .bold, design: .rounded))
-                    Text("Network drives connected to this Mac, including Finder.")
-                        .font(.system(size: 13)).foregroundStyle(.secondary)
+                    Text("⌘-click to select multiple · Shift-click for a range")
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button { Task { await store.refreshMounted() } } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
-                }.buttonStyle(PillStyle()).disabled(store.refreshingMounted || store.working)
+                Button("Eject all") { Task { await store.ejectVolumes(store.mountedVolumes) } }
+                    .buttonStyle(PillStyle()).disabled(store.mountedVolumes.isEmpty || store.working)
+                Button { Task { await store.refreshMounted() } } label: { Image(systemName: "arrow.clockwise") }
+                    .buttonStyle(PillStyle()).disabled(store.refreshingMounted || store.working).help("Refresh")
             }
-            HStack(spacing: 7) {
+            HStack(spacing: 9) {
                 Circle().fill(store.mountedError == nil ? Color.green : Color.orange).frame(width: 6, height: 6)
-                Text(store.mountedError ?? "\(store.mountedVolumes.count) connected · Updates automatically")
-                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                Text(store.mountedError ?? "\(store.mountedVolumes.count) connected").font(.system(size: 12)).foregroundStyle(.secondary)
+                Spacer()
+                Button("Select all") { store.selectedMountedIDs = Set(store.mountedVolumes.map(\.id)) }.buttonStyle(.borderless)
+                Button("Deselect all") { store.selectedMountedIDs = [] }.buttonStyle(.borderless)
             }
-            ScrollView {
-                LazyVStack(spacing: 10) {
-                    ForEach(store.mountedVolumes) { volume in mountedRow(volume) }
-                    if store.mountedVolumes.isEmpty {
-                        VStack(spacing: 12) {
-                            Image(systemName: "externaldrive").font(.system(size: 36, weight: .ultraLight)).foregroundStyle(.secondary)
-                            Text(store.refreshingMounted ? "Checking connected drives…" : "No network drives connected")
-                                .font(.system(size: 15, weight: .medium))
-                            Text("Drives you connect here or in Finder appear automatically.")
-                                .font(.system(size: 12)).foregroundStyle(.secondary)
-                        }.frame(maxWidth: .infinity).padding(.vertical, 60)
-                    }
-                }.padding(.bottom, 8)
+            List(selection: $store.selectedMountedIDs) {
+                ForEach(store.mountedVolumes) { volume in
+                    mountedRow(volume).tag(volume.id)
+                        .overlay(RoundedRectangle(cornerRadius: 19).strokeBorder(store.selectedMountedIDs.contains(volume.id) ? Color.blue.opacity(0.75) : .clear, lineWidth: 1.5))
+                        .listRowSeparator(.hidden).listRowBackground(Color.clear)
+                }
+                if store.mountedVolumes.isEmpty {
+                    Text(store.refreshingMounted ? "Checking connected drives…" : "No network drives connected")
+                        .foregroundStyle(.secondary).padding(30)
+                }
+            }.listStyle(.plain).scrollContentBackground(.hidden).disabled(store.working)
+                .contextMenu(forSelectionType: String.self) { ids in mountedContext(ids) }
+            if !store.selectedMountedIDs.isEmpty {
+                HStack {
+                    Text("\(store.selectedMountedIDs.count) selected").font(.system(size: 12)).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Save as group…") { store.groupFromMounted(store.selectedMountedIDs) }.buttonStyle(PillStyle())
+                    Button("Eject selected") {
+                        Task { await store.ejectVolumes(store.mountedVolumes.filter { store.selectedMountedIDs.contains($0.id) }) }
+                    }.buttonStyle(PillStyle()).disabled(store.working)
+                }
             }
         }.padding(30)
     }
-
     func mountedRow(_ volume: MountedVolume) -> some View {
         HStack(spacing: 13) {
             Image(systemName: "externaldrive.fill").font(.system(size: 25)).foregroundStyle(.blue)
@@ -910,7 +1233,7 @@ struct RootView: View {
     }
 
     func detail(_ server: Server) -> some View {
-        VStack(alignment: .leading, spacing: 22) {
+        VStack(alignment: .leading, spacing: 20) {
             HStack(spacing: 14) {
                 Image(systemName: server.symbol).font(.system(size: 26)).foregroundStyle(.blue)
                     .frame(width: 60, height: 60).modifier(GlassCard(radius: 18))
@@ -919,80 +1242,52 @@ struct RootView: View {
                     Text(server.address).font(.system(size: 12)).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button { Task { await store.save() } } label: {
-                    Label(server.saved ? "Saved" : "Save", systemImage: server.saved ? "star.fill" : "star")
-                }.buttonStyle(PillStyle()).disabled(store.working || store.loading)
-            }
-            VStack(alignment: .leading, spacing: 16) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("Sign in").font(.system(size: 15, weight: .semibold))
-                        Text("Use your account on this server.").font(.system(size: 12)).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Image(systemName: "lock.shield").font(.system(size: 21, weight: .light)).foregroundStyle(.secondary)
-                }
-                HStack(spacing: 12) {
-                    field("Username") { TextField("Username", text: $store.username) }
-                    field("Password") { SecureField("Password", text: $store.password).onSubmit { Task { await store.load() } } }
-                }
-                HStack(spacing: 12) {
-                    Button { Task { await store.load() } } label: {
-                        HStack(spacing: 8) {
-                            if store.loading { ProgressView().controlSize(.mini) }
-                            Text(store.loading ? "Loading…" : "Load drives")
-                            if !store.loading { Image(systemName: "arrow.right") }
-                        }
-                    }.buttonStyle(PillStyle(primary: true)).disabled(store.loading || store.working)
+                Menu {
+                    Button("Save server") { Task { await store.save() } }
+                    Button("Change account…") { Task { await store.browseServer(forcePrompt: true) } }
+                    Button("Forget saved account") { Task { await store.forgetAccount(server) } }
                     Button("Use Finder") { Task { await store.finder() } }
-                        .buttonStyle(.borderless).disabled(store.working)
-                    Spacer()
-                }
-            }.padding(22).modifier(GlassCard())
-                .disabled(store.working)
-            HStack {
-                Text("Shared drives").font(.system(size: 16, weight: .semibold))
-                Text("\(server.drives.count)").font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
-                    .padding(.horizontal, 8).padding(.vertical, 4).background(.quaternary, in: Capsule())
-                Spacer()
-                if !server.drives.isEmpty {
-                    Button(store.selectedDrives.count == server.drives.count ? "Deselect all" : "Select all") {
-                        store.selectedDrives = store.selectedDrives.count == server.drives.count ? [] : Set(server.drives.map(\.id))
-                    }.buttonStyle(.borderless).font(.system(size: 12)).disabled(store.working)
-                }
+                } label: { Image(systemName: "ellipsis").padding(10) }.menuStyle(.borderlessButton).fixedSize().disabled(store.working)
             }
-            ScrollView {
-                if server.drives.isEmpty {
-                    VStack(spacing: 12) {
-                        Image(systemName: "externaldrive").font(.system(size: 32, weight: .ultraLight)).foregroundStyle(.tertiary)
-                        Text(store.loadedServers.contains(server.id) ? "No shared drives" : "Your drives will appear here")
-                            .font(.system(size: 14, weight: .medium))
-                        Text(store.loadedServers.contains(server.id) ? "This server has no available disk shares." : "Sign in above, then choose Load drives.")
-                            .font(.system(size: 12)).foregroundStyle(.secondary)
-                    }.frame(maxWidth: .infinity).padding(.vertical, 42)
-                } else {
-                    LazyVStack(spacing: 10) {
-                        ForEach(server.drives) { drive in driveRow(drive) }
-                    }
-                }
-            }.frame(maxHeight: .infinity)
+            HStack(spacing: 12) {
+                Button { Task { await store.load() } } label: {
+                    Label(store.loadedServers.contains(server.id) ? "Refresh drives" : "Load drives…", systemImage: "externaldrive")
+                }.buttonStyle(PillStyle(primary: true)).disabled(store.working)
+                Button("Connect all") { Task { await store.connectServers([server.id]) } }.buttonStyle(PillStyle()).disabled(store.working)
+                Button("Eject all") { Task { await store.ejectVolumes(store.volumesForServers([server.id])) } }
+                    .buttonStyle(PillStyle()).disabled(store.working || store.volumesForServers([server.id]).isEmpty)
+            }
             HStack {
-                Text(store.selectedDrives.isEmpty ? "Select drives to connect" : "\(store.selectedDrives.count) selected")
-                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                Text("Shared drives · \(server.drives.count)").font(.system(size: 16, weight: .semibold))
                 Spacer()
-                if store.connectedSelection {
-                    Button("Eject") { Task { await store.batch("eject") } }
-                        .buttonStyle(PillStyle()).disabled(store.working)
+                Button("Select all") { store.selectedDrives = Set(server.drives.map(\.id)) }.buttonStyle(.borderless).disabled(store.working)
+                Button("Deselect all") { store.selectedDrives = [] }.buttonStyle(.borderless).disabled(store.working)
+            }
+            List(selection: $store.selectedDrives) {
+                ForEach(server.drives) { drive in
+                    driveRow(drive).tag(drive.id).listRowSeparator(.hidden).listRowBackground(Color.clear)
                 }
-                Button { Task { await store.batch("mount") } } label: {
-                    Label(store.working ? "Working…" : "Connect", systemImage: "link")
-                }.buttonStyle(PillStyle(primary: true))
-                    .disabled(store.selectedDrives.isEmpty || store.working || store.loading)
-                    
-            }.padding(14).modifier(GlassCard(radius: 24))
+                if server.drives.isEmpty {
+                    Text("Choose Load drives to sign in and see shared drives.").font(.system(size: 13)).foregroundStyle(.secondary).padding(.vertical, 40)
+                }
+            }.listStyle(.plain).scrollContentBackground(.hidden).disabled(store.working)
+                .contextMenu(forSelectionType: String.self) { ids in
+                    Button("Connect selected") { store.selectedDrives = ids; Task { await store.batch("mount") } }.disabled(ids.isEmpty)
+                    Button("Eject selected") { store.selectedDrives = ids; Task { await store.batch("eject") } }.disabled(ids.isEmpty)
+                    Divider()
+                    Button("Connect all") { Task { await store.connectServers([server.id]) } }
+                    Button("Eject all") { Task { await store.ejectVolumes(store.volumesForServers([server.id])) } }
+                }
+            HStack {
+                Text("\(store.selectedDrives.count) selected").font(.system(size: 12)).foregroundStyle(.secondary)
+                Spacer()
+                Button("Eject selected") { Task { await store.batch("eject") } }
+                    .buttonStyle(PillStyle()).disabled(!store.connectedSelection || store.working)
+                Button("Connect selected") { Task { await store.batch("mount") } }
+                    .buttonStyle(PillStyle(primary: true)).disabled(store.selectedDrives.isEmpty || store.working)
+            }
         }.padding(30)
     }
-
     func field<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             Text(title).font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
@@ -1004,10 +1299,8 @@ struct RootView: View {
 
     func driveRow(_ drive: Drive) -> some View {
         HStack(spacing: 13) {
-            Toggle(isOn: Binding(get: { store.selectedDrives.contains(drive.id) }, set: { value in
-                if value { store.selectedDrives.insert(drive.id) } else { store.selectedDrives.remove(drive.id) }
-            })) { EmptyView() }.labelsHidden().toggleStyle(.checkbox).disabled(store.working)
-                .accessibilityLabel("Select \(drive.name)")
+            Image(systemName: store.selectedDrives.contains(drive.id) ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(store.selectedDrives.contains(drive.id) ? Color.blue : Color.secondary)
             Image(systemName: "externaldrive.fill").font(.system(size: 23)).foregroundStyle(drive.connected ? .blue : .secondary)
             VStack(alignment: .leading, spacing: 4) {
                 Text(drive.name).font(.system(size: 13, weight: .medium))

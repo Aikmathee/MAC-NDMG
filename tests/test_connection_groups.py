@@ -87,6 +87,24 @@ class ConnectionGroupsTests(unittest.TestCase):
         self.assertNotIn('@', command[1])
         self.assertIn('Studio%20Footage', command[1])
 
+    def test_remembered_account_reconnect_encodes_credentials_without_persisting_them(self):
+        before = self.path.read_text()
+        with patch.object(network_mounts, 'list_network_mounts', return_value=[]):
+            with patch.object(groups.subprocess, 'run', return_value=SimpleNamespace(returncode=0)) as run:
+                with patch.object(groups.time, 'sleep'):
+                    result, _ = groups.reconnect(self.ids[0], 'user@studio', 'private#:/')
+        self.assertEqual(result, 'waiting')
+        self.assertIn('user%40studio:private%23%3A%2F@', run.call_args.args[0][1])
+        self.assertEqual(self.path.read_text(), before)
+        self.assertNotIn('private', self.path.read_text())
+
+    def test_finder_failure_does_not_echo_credentials_in_error(self):
+        with patch.object(network_mounts, 'list_network_mounts', return_value=[]):
+            with patch.object(groups.subprocess, 'run', return_value=SimpleNamespace(returncode=1, stderr='private-password')):
+                with self.assertRaises(RuntimeError) as raised:
+                    groups.reconnect(self.ids[0], 'test-user', 'private-password')
+        self.assertNotIn('private-password', str(raised.exception))
+
     def test_reconnect_checks_actual_mount_after_finder_opens(self):
         with patch.object(network_mounts, 'list_network_mounts', side_effect=[[], self.volumes]):
             with patch.object(groups.subprocess, 'run', return_value=SimpleNamespace(returncode=0)):

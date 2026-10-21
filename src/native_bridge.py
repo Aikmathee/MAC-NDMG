@@ -31,7 +31,7 @@ def dispatch(request):
         elif action == "delete_group":
             state = connection_groups.delete_group(request.get("group_id"))
         elif action == "reconnect":
-            status, volumes = connection_groups.reconnect(request.get("drive_id"))
+            status, volumes = connection_groups.reconnect(request.get("drive_id"), request.get("username", ""), request.get("password", ""))
         else:
             state = connection_groups.remember_mounts(network_mounts.list_network_mounts())
         result = {"ok": True}

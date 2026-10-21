@@ -110,7 +110,7 @@ def is_connected(drive, volumes):
                for volume in volumes)
 
 
-def reconnect(drive_id):
+def reconnect(drive_id, username="", password=""):
     # Accept only an identifier from local history, never an arbitrary URL or password.
     state = load_state()
     drive = next((item for item in state['drives'] if item['id'] == drive_id), None)
@@ -122,7 +122,8 @@ def reconnect(drive_id):
     address = drive['address']
     if ':' in address and not address.startswith('['):
         address = f'[{address}]'
-    uri = f"smb://{quote(address, safe='[]:.')}/{quote(drive['share'], safe='')}"
+    credentials = f"{quote(username, safe='')}:{quote(password, safe='')}@" if username else ""
+    uri = f"smb://{credentials}{quote(address, safe='[]:.')}/{quote(drive['share'], safe='')}"
     result = subprocess.run(['/usr/bin/open', uri], capture_output=True, text=True, timeout=10)
     if result.returncode:
         raise RuntimeError('Finder could not open this drive. Check that the server is available.')

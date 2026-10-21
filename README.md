@@ -23,11 +23,37 @@ unmounting; if a drive is busy, its error is shown and the app does not force it
 Local disks are not included. Duplicate drive names and multiple mounts of the
 same share are tracked separately by their real mounted source and path.
 
+### Multiple selection and batch actions
+
+The server sidebar, Connected list, shared-drive list, and Groups & saved drives
+use native macOS selection. **Command-click** adds/removes an item;
+**Shift-click** selects a range; **Command-A** selects all in the focused list.
+**Control-click** or right-click opens actions for the clicked selection.
+
+- Select multiple servers, then choose **Connect all** or **Eject all**.
+- **Connected** offers **Eject selected** and **Eject all**.
+- Groups offer **Connect group** and **Eject group**; multiple groups and saved
+  drives can be selected together, with overlapping destinations handled once.
+- **Save selection as group** creates a reusable set from the current selection.
+- Batch eject continues past busy drives, reports failures, and never forces an unmount.
+
+### Remembered accounts
+
+**Load drives**, **Connect all**, and **Change account** use a sign-in sheet.
+Check **Remember this server** to store the validated account in macOS Keychain.
+The account is saved only after listing shares succeeds. Later requests reuse it;
+if it fails, the sign-in sheet opens so you can correct it. Unchecking Remember
+or choosing **Forget saved account** removes the app's stored account.
+
+Accounts for known mounted aliases are kept together. Passwords never go into
+server/group JSON files. macOS may ask to grant Keychain access, especially for
+ad-hoc signed development builds; production signing gives the app a stable identity.
+
 ### Saved drives and groups
 
 Open **Groups** in the sidebar to reconnect previously used SMB drives. The app
 remembers destinations from its live connected-drive inventory, including Finder
-connections. It stores server/share names, never usernames or passwords.
+connections. Its JSON file stores server/share names, never usernames or passwords; optional accounts live separately in Keychain.
 
 1. Choose **New group**, give it a name, and check the drives to include.
 2. Choose **Save group**. Drives may come from different servers.
@@ -58,7 +84,7 @@ flow and lets Finder manage authentication. **Activity** shows recent results.
 - macOS 26 uses the system's `NSGlassEffectView` for Liquid Glass surfaces.
   Earlier macOS versions use `NSVisualEffectView` materials.
 - Preferences live in `~/Library/Application Support/MAC-NDMG/shares.json`.
-- Passwords stay in memory and are cleared after a batch or server change.
+- Accounts stay in memory for the app session unless Remember is selected; remembered accounts live in Keychain.
   Existing SMB system commands receive credentials as arguments, which may be
   visible to local process inspection. Use Finder for OS-managed authentication.
 - No localhost web server or port 8888 is needed. SMB uses the server's port 445.
