@@ -1,180 +1,42 @@
-# macOS Network Drive Manager (GUI)
+# Network Drives for Mac
 
-An internal macOS desktop utility built with **Python / Tkinter** that allows users to discover, select, and batch-mount multiple SMB network shares across localized workstations and NAS devices within a LAN using a unified credential session.
+A native macOS app for finding servers and connecting to multiple SMB shared
+drives. SwiftUI and AppKit provide the interface; the bundled Python service
+handles discovery, authentication, mounting, and saved servers.
 
-![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python)
-![macOS](https://img.shields.io/badge/macOS-12+-black?logo=apple)
-![License](https://img.shields.io/badge/License-Internal-lightgrey)
+## Use the app
 
----
+Requires **macOS 13 or newer**. The distributed app includes Python.
 
-## 🎯 Problem Statement
+1. Unzip `Network-Drive-Manager-macOS.zip` and move the app into Applications.
+2. The app opens to **Overview** and searches the local network automatically.
+3. Choose a server card, enter its username and password, and choose **Load drives**.
+4. Select the drives you want and choose **Connect**.
+5. Connected drives offer **Open**; select them and choose **Eject** to disconnect.
 
-In local network environments (e.g., video editing suites, studio workflows), Mac users often need to connect to multiple shared hard drives across several workstations. Connecting via macOS Finder (`Cmd + K`) requires manual, repetitive input for each share path, causing friction and time loss.
+**Add server** accepts an IP address or hostname. **Save** keeps the current
+server and drive names for next time. **Use Finder** opens the macOS connection
+flow and lets Finder manage authentication. **Activity** shows recent results.
 
----
+- `⌘R`: refresh discovery from Overview.
+- `⌘K`: add a server.
+- The interface follows the system's light or dark appearance.
+- macOS 26 uses the system's `NSGlassEffectView` for Liquid Glass surfaces.
+  Earlier macOS versions use `NSVisualEffectView` materials.
+- Preferences live in `~/Library/Application Support/MAC-NDMG/shares.json`.
+- Passwords stay in memory and are cleared after a batch or server change.
+  Existing SMB system commands receive credentials as arguments, which may be
+  visible to local process inspection. Use Finder for OS-managed authentication.
+- No localhost web server or port 8888 is needed. SMB uses the server's port 445.
+- Recipients must be on the server's network or a suitable VPN.
 
-## 🚀 Features
+The locally built app is ad-hoc signed, not Apple-notarized. Public distribution
+requires an Apple Developer signing identity and notarization. Build on the CPU
+architecture you want to support; the current ZIP is for Apple Silicon.
 
-| Feature | Description |
-|---------|-------------|
-| **Unified Authentication** | Enter SMB credentials once to mount all selected shares |
-| **Structured Host View** | Visual tree/grouping of LAN hosts and their exported shares |
-| **Batch Selection** | Select All / Clear All / individual checkboxes per drive |
-| **Async Mounting** | Background-threaded mount operations — GUI never freezes |
-| **Config-Driven** | Reads hosts & shares from `config/shares.json` |
-| **Live Status** | Green/orange/red badges show mount state per drive |
-| **Disconnect** | Batch eject mounted volumes |
-| **LAN Scanner** | Optional port-445 probe to discover SMB hosts |
+## Build
 
----
-
-## 📁 Project Structure
-
-```text
-mac-network-mounter/
-├── config/
-│   └── shares.json            # Target LAN machines and share definitions
-├── assets/
-│   └── app_icon.icns          # Application icon for macOS packaging
-├── src/
-│   ├── __init__.py
-│   ├── main.py                # Application entry point
-│   ├── models/
-│   │   └── share_item.py      # Data structures (HostEntry, ShareItem)
-│   ├── services/
-│   │   ├── config_loader.py   # JSON config reader/writer
-│   │   ├── mounter.py         # SMB mounting via subprocess + status checks
-│   │   └── lan_scanner.py     # Optional LAN scanning
-│   └── ui/
-│       ├── components.py      # Custom Tkinter widgets (dark theme)
-│       └── main_window.py     # Main GUI layout & controller
-├── build_app.py               # PyInstaller / py2app bundler
-├── requirements.txt           # Dependencies
-└── README.md                  # This file
-```
-
----
-
-## ⚡ Quick Start
-
-### Prerequisites
-
-- **macOS 12+** (Monterey or later recommended)
-- **Python 3.10+** with Tkinter (included in macOS default Python or Homebrew Python)
-
-### Run
-
-```bash
-# Clone / navigate to the project directory
-cd mac-network-mounter
-
-# Run directly (no pip install needed — stdlib only)
-python -m src.main
-
-# Or with a custom config file
-python -m src.main --config /path/to/my_shares.json
-
-# Verbose debug logging
-python -m src.main -v
-```
-
-### Configure Hosts
-
-Edit `config/shares.json` to define your LAN machines:
-
-```json
-{
-  "hosts": [
-    {
-      "id": "host-01",
-      "name": "Editing Rig 01",
-      "ip_or_hostname": "192.168.1.100",
-      "shares": ["Video_Projects", "Cache_Drive", "Assets"]
-    },
-    {
-      "id": "host-02",
-      "name": "Central Storage NAS",
-      "ip_or_hostname": "192.168.1.102",
-      "shares": ["Archive_2024", "Sound_Effects"]
-    }
-  ]
-}
-```
-
----
-
-## 🏗️ Build Standalone `.app`
-
-```bash
-# Install PyInstaller
-pip install pyinstaller
-
-# Build
-python build_app.py
-
-# Or with py2app
-pip install py2app
-python build_app.py --backend py2app
-
-# Clean first
-python build_app.py --clean
-```
-
-The bundled app will be at `dist/Network Drive Manager.app`.
-
----
-
-## 🛠️ Technical Details
-
-### Mounting Strategy
-
-The app uses macOS `open smb://...` via `subprocess.run()`:
-
-1. Credentials are **URL-encoded** (`urllib.parse.quote`) to handle special characters (`@`, `:`, `/`, `#`)
-2. URI format: `smb://<encoded_user>:<encoded_pass>@<ip>/<share>`
-3. After issuing the `open` command, the app polls `/Volumes/<ShareName>` to verify the mount succeeded
-4. Retries up to 5 times with 1.5 s intervals if the volume doesn't appear immediately
-
-### Threading Model
-
-- **Main thread:** Tkinter event loop (all GUI updates)
-- **Worker thread:** Sequential `mount_share()` calls via `threading.Thread(daemon=True)`
-- GUI updates are safely posted from the worker via `root.after(0, callback)`
-
-### Credential Security
-
-- Passwords are **never logged** — only a masked URI appears in logs
-- Credentials exist only in memory during the session; they are not persisted to disk
-
----
-
-## 📝 License
-
-Internal use only. Not for redistribution.
-
-## Updated desktop workflow
-
-The Python application runs directly on macOS; it does **not** need localhost or
-port 8888. `index.html` is a separate informational website, not a drive-control
-interface. SMB connections use port 445 on your NAS/server.
-
-1. Run `python3 -m src.main` on your Mac.
-2. Choose **Refresh** or **Add server**, then select a server.
-3. Enter that server's username/password and click **Load drives**.
-4. Select drives and click **Connect**. Finder may request permission.
-5. Use **Open** to view a mounted drive, **Eject** to disconnect, and **Save
-   server** to retain the server and its drive list.
-
-Saved servers are stored per user in
-`~/Library/Application Support/MAC-NDMG/shares.json`, outside the app bundle.
-A fresh installation starts with no sample servers. To import an existing
-configuration, launch with `python3 -m src.main --config config/shares.json`.
-Passwords are not saved to the configuration. macOS commands currently receive
-credentials as arguments, so they can be visible to local process inspection.
-Use **Open in Finder** with an empty password for macOS-managed authentication.
-
-### Build and share
+Requires macOS, Apple's Command Line Tools (Swift 6.1 or newer), and Python 3.10+.
 
 ```bash
 python3 -m venv .venv
@@ -183,29 +45,34 @@ python3 -m venv .venv
 ditto -c -k --sequesterRsrc --keepParent 'dist/Network Drive Manager.app' 'dist/Network-Drive-Manager-macOS.zip'
 ```
 
-Send the ZIP to another Mac user. They unzip it and move the `.app` into
-Applications; Python is included in the bundle. The recipient must be on the
-same network as the target SMB server, or connected through a suitable VPN.
-Build on the CPU architecture you intend to support (Apple Silicon or Intel).
-The GitHub Actions workflow builds an Apple Silicon app on pushes to `main` or
-`master`, on pull requests, or manually. Download the ZIP from the successful
-run's **Artifacts** section. This build is unsigned and not notarized; broad
-public distribution requires Apple Developer signing and notarization.
+The default build creates the SwiftUI app and bundles its Python service under
+`Contents/Resources/service`. The UI sends one JSON request per service process
+through standard input, including credentials; it never puts credentials in its
+own command line or opens a listening port.
 
-### Validation
+The GitHub Actions workflow runs tests and builds an Apple Silicon app on pushes
+to `main`/`master`, pull requests, and manual runs. Download the ZIP from the
+successful run's **Artifacts** section.
+
+## Development and legacy UI
 
 ```bash
 python3 -m unittest discover -s tests -v
+python3 -m src.main                          # legacy Tkinter UI
+python3 -m src.main --config config/shares.json
+.venv/bin/python build_app.py --backend pyinstaller  # legacy standalone UI
 ```
 
-These tests cover configuration persistence, clean-install behavior, SMB URL
-encoding, and parsing share names with spaces. A real NAS/server is needed for
-end-to-end discovery, authentication, mounting, and eject validation.
+`native/NetworkDrives.swift` contains the native interface and state controller.
+`src/native_bridge.py` is the JSON service entry point. Existing Python models
+and services remain in `src/models` and `src/services`.
 
-### Interface
+Tests cover persistence, clean-install behavior, SMB URL encoding, share names
+with spaces, service request validation, and the native service response format.
+A real server account is required to validate authenticated mounts end to end.
 
-The desktop uses a light two-column layout with one blue primary action.
-Server labels show the name and address without protocol tags. Sign-in fields
-have labels above them; the bottom bar shows the selection count. Connect and
-Eject become available when the selection supports the action. Activity history
-is collapsed by default and can be opened from the status bar.
+`index.html` is a separate informational website, not the app's control surface.
+
+## License
+
+Internal use only. Not for redistribution.
