@@ -249,12 +249,9 @@ def list_shares_for_host(
             line_clean = line.strip()
             if not line_clean or line_clean.startswith("-") or "Share" in line_clean and "Type" in line_clean:
                 continue
-            parts = line_clean.split()
-            if len(parts) >= 2 and parts[1].lower() == "disk":
-                shares.append(parts[0])
-            elif len(parts) == 1 and not parts[0].endswith("$"):
-                # Fallback if type is omitted
-                shares.append(parts[0])
+            match = re.match(r"^(.+?)\s+(Disk|Printer|IPC)\b", line_clean, re.IGNORECASE)
+            if match and match.group(2).lower() == "disk":
+                shares.append(match.group(1).strip())
 
         if not shares:
             return [], "No exported disk shares found on this host"

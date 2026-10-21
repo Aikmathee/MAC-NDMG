@@ -152,3 +152,52 @@ The app uses macOS `open smb://...` via `subprocess.run()`:
 ## 📝 License
 
 Internal use only. Not for redistribution.
+
+## Updated desktop workflow
+
+The Python application runs directly on macOS; it does **not** need localhost or
+port 8888. `index.html` is a separate informational website, not a drive-control
+interface. SMB connections use port 445 on your NAS/server.
+
+1. Run `python3 -m src.main` on your Mac.
+2. Choose **Scan network** or **Add server**, then select a server.
+3. Enter that server's username/password and click **Find drives**.
+4. Select drives and click **Connect selected**. Finder may request permission.
+5. Use **Open** to view a mounted drive, **Eject** to disconnect, and **Save
+   server** to retain the server and its drive list.
+
+Saved servers are stored per user in
+`~/Library/Application Support/MAC-NDMG/shares.json`, outside the app bundle.
+A fresh installation starts with no sample servers. To import an existing
+configuration, launch with `python3 -m src.main --config config/shares.json`.
+Passwords are not saved to the configuration. macOS commands currently receive
+credentials as arguments, so they can be visible to local process inspection.
+Use **Open in Finder** with an empty password for macOS-managed authentication.
+
+### Build and share
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python build_app.py
+ditto -c -k --sequesterRsrc --keepParent 'dist/Network Drive Manager.app' 'dist/Network-Drive-Manager-macOS.zip'
+```
+
+Send the ZIP to another Mac user. They unzip it and move the `.app` into
+Applications; Python is included in the bundle. The recipient must be on the
+same network as the target SMB server, or connected through a suitable VPN.
+Build on the CPU architecture you intend to support (Apple Silicon or Intel).
+The GitHub Actions workflow builds an Apple Silicon app on pushes to `main` or
+`master`, on pull requests, or manually. Download the ZIP from the successful
+run's **Artifacts** section. This build is unsigned and not notarized; broad
+public distribution requires Apple Developer signing and notarization.
+
+### Validation
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+These tests cover configuration persistence, clean-install behavior, SMB URL
+encoding, and parsing share names with spaces. A real NAS/server is needed for
+end-to-end discovery, authentication, mounting, and eject validation.

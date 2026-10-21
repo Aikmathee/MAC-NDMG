@@ -41,7 +41,7 @@ def build_smb_uri(username: str, password: str, ip: str, share_name: str) -> str
     """
     encoded_pw = encode_password(password)
     encoded_user = url_quote(username, safe="")
-    return f"smb://{encoded_user}:{encoded_pw}@{ip}/{share_name}"
+    return f"smb://{encoded_user}:{encoded_pw}@{ip}/{url_quote(share_name, safe='')}"
 
 
 def check_mount_status(share: ShareItem) -> MountStatus:
@@ -95,7 +95,7 @@ def mount_share(
     uri = build_smb_uri(username, password, share.host_ip, share.name)
 
     # Log the URI with the password masked
-    masked_uri = uri.replace(encode_password(password), "****")
+    masked_uri = build_smb_uri(username, "****", share.host_ip, share.name)
     log.info("Mounting %s via: %s", share.name, masked_uri)
 
     try:
