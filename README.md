@@ -23,6 +23,30 @@ unmounting; if a drive is busy, its error is shown and the app does not force it
 Local disks are not included. Duplicate drive names and multiple mounts of the
 same share are tracked separately by their real mounted source and path.
 
+### Saved drives and groups
+
+Open **Groups** in the sidebar to reconnect previously used SMB drives. The app
+remembers destinations from its live connected-drive inventory, including Finder
+connections. It stores server/share names, never usernames or passwords.
+
+1. Choose **New group**, give it a name, and check the drives to include.
+2. Choose **Save group**. Drives may come from different servers.
+3. Choose **Connect group** when you want the set connected.
+
+Use the group's options menu to edit its name/members or delete the group.
+Deleting a group does not eject its drives. **Select connected** in the editor
+selects the SMB drives currently connected to the Mac.
+
+Groups connect only when you click Connect. Already mounted destinations are
+skipped, and duplicate mounts of the same share are remembered once. Finder
+uses its normal authentication flow and may ask for credentials. A request
+waiting for Finder is shown as waiting, not as successfully connected. **Stop**
+in the status bar stops the remaining queue after the current request finishes.
+
+Saved drive and group data is stored in
+`~/Library/Application Support/MAC-NDMG/connections.json`. Concurrent updates are
+locked and written atomically. The app does not schedule automatic connections.
+
 **Add server** accepts an IP address or hostname. **Save** keeps the current
 server and drive names for next time. **Use Finder** opens the macOS connection
 flow and lets Finder manage authentication. **Activity** shows recent results.

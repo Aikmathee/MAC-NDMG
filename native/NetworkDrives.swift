@@ -31,7 +31,7 @@ struct MountedVolume: Decodable, Identifiable, Equatable {
         case serverName = "server_name"
         case mountPoint = "mount_point"
     }
-    private func hostKey(_ value: String) -> String {
+    func hostKey(_ value: String) -> String {
         var key = (value.removingPercentEncoding ?? value).lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
         for suffix in ["._smb._tcp.local", "._afpovertcp._tcp.local", ".local"] {
             if key.hasSuffix(suffix) { key = String(key.dropLast(suffix.count)); break }
@@ -43,12 +43,46 @@ struct MountedVolume: Decodable, Identifiable, Equatable {
     }
 }
 
+struct SavedDrive: Decodable, Identifiable, Equatable {
+    var id: String
+    var name: String
+    var address: String
+    var serverName: String
+    var share: String
+    enum CodingKeys: String, CodingKey {
+        case id, name, address, share
+        case serverName = "server_name"
+    }
+    func matches(_ volume: MountedVolume) -> Bool {
+        volume.filesystem == "smbfs" && volume.share == share && volume.hostKey(volume.address) == volume.hostKey(address)
+    }
+}
+
+struct DriveGroup: Decodable, Identifiable, Equatable {
+    var id: String
+    var name: String
+    var driveIDs: [String]
+    enum CodingKeys: String, CodingKey {
+        case id, name
+        case driveIDs = "drive_ids"
+    }
+}
+
 struct Response: Decodable {
     var ok: Bool
     var error: String?
     var hosts: [Server]?
     var drives: [Drive]?
     var volumes: [MountedVolume]?
+    var remembered: [SavedDrive]?
+    var groups: [DriveGroup]?
+    var connectionState: String?
+    var storageError: String?
+    enum CodingKeys: String, CodingKey {
+        case ok, error, hosts, drives, volumes, remembered, groups
+        case connectionState = "connection_state"
+        case storageError = "storage_error"
+    }
 }
 
 /// Resolves the actual system glass class at runtime so the same binary also runs on macOS 13–15.
@@ -150,6 +184,19 @@ struct Service {
     @Published var servers: [Server] = []
     @Published var mountedVolumes: [MountedVolume] = []
     @Published var showingConnected = false
+    @Published var showingGroups = false
+    @Published var rememberedDrives: [SavedDrive] = []
+    @Published var groups: [DriveGroup] = []
+    @Published var showingGroupEditor = false
+    @Published var editingGroupID: String?
+    @Published var newGroupName = ""
+    @Published var newGroupDriveIDs = Set<String>()
+    @Published var groupEditorError: String?
+    @Published var libraryError: String?
+    @Published var savingGroup = false
+    @Published var pendingDeleteGroup: DriveGroup?
+    @Published var connectingLabel: String?
+    @Published var stopConnecting = false
     @Published var refreshingMounted = false
     @Published var mountedError: String?
     @Published var ejectingVolumeID: String?
@@ -188,7 +235,97 @@ struct Service {
             if response.ok { merge(response.hosts ?? []) }
             else { report(response.error ?? "Could not load saved servers.") }
         } catch { report(error.localizedDescription) }
+        await loadConnections()
         await scan()
+    }
+    func applyLibrary(_ response: Response) {
+        libraryError = response.storageError
+        if let values = response.remembered { rememberedDrives = values }
+        if let values = response.groups { groups = values }
+    }
+    func loadConnections() async {
+        do {
+            let response = try await Service.request(["action": "connections"])
+            if response.ok { applyLibrary(response) }
+            else { report(response.error ?? "Could not load saved connections.") }
+        } catch { report(error.localizedDescription) }
+    }
+    func isConnected(_ drive: SavedDrive) -> Bool { mountedVolumes.contains { drive.matches($0) } }
+    func drivesForGroup(_ group: DriveGroup) -> [SavedDrive] {
+        group.driveIDs.compactMap { id in rememberedDrives.first { $0.id == id } }
+    }
+    func showGroups() {
+        guard !working && !loading else { return }
+        choose(nil)
+        showingGroups = true
+    }
+    func editGroup(_ group: DriveGroup? = nil) {
+        editingGroupID = group?.id
+        newGroupName = group?.name ?? ""
+        newGroupDriveIDs = Set(group?.driveIDs ?? [])
+        groupEditorError = nil
+        showingGroupEditor = true
+    }
+    func saveGroup() async {
+        guard !savingGroup else { return }
+        savingGroup = true; groupEditorError = nil
+        defer { savingGroup = false }
+        do {
+            var payload: [String: Any] = ["action": "save_group", "name": newGroupName, "drive_ids": Array(newGroupDriveIDs).sorted()]
+            if let id = editingGroupID { payload["group_id"] = id }
+            let response = try await Service.request(payload)
+            if response.ok {
+                applyLibrary(response)
+                showingGroupEditor = false
+                showGroups()
+                note("Group saved")
+            } else { groupEditorError = response.error ?? "Could not save group." }
+        } catch { groupEditorError = error.localizedDescription }
+    }
+    func deleteGroup(_ group: DriveGroup) async {
+        guard !savingGroup else { return }
+        savingGroup = true
+        defer { savingGroup = false }
+        do {
+            let response = try await Service.request(["action": "delete_group", "group_id": group.id])
+            if response.ok { applyLibrary(response); note("Group deleted") }
+            else { report(response.error ?? "Could not delete group.") }
+        } catch { report(error.localizedDescription) }
+    }
+    func connectSaved(_ drives: [SavedDrive], label: String) async {
+        guard !working && !loading else { return }
+        let pending = drives.filter { !isConnected($0) }
+        guard !pending.isEmpty else { note("Already connected"); return }
+        working = true
+        connectingLabel = label
+        stopConnecting = false
+        defer {
+            working = false
+            connectingLabel = nil
+            Task { await refreshMounted() }
+        }
+        var connected = 0, waiting = 0, failed = 0, processed = 0
+        for drive in pending {
+            if stopConnecting { break }
+            note("\(label): \(processed + 1) of \(pending.count)…")
+            do {
+                let response = try await Service.request(["action": "reconnect", "drive_id": drive.id])
+                if let volumes = response.volumes { applyMounted(volumes) }
+                if response.ok && response.connectionState == "connected" { connected += 1 }
+                else if response.ok && response.connectionState == "waiting" { waiting += 1 }
+                else {
+                    failed += 1
+                    note("Could not connect to \(drive.name): \(response.error ?? "Unknown error")")
+                }
+            } catch {
+                failed += 1
+                note("Could not connect to \(drive.name): \(error.localizedDescription)")
+            }
+            processed += 1
+        }
+        let result = "\(connected) connected" + (waiting > 0 ? " · \(waiting) waiting in Finder" : "") + (failed > 0 ? " · \(failed) failed" : "")
+        note((stopConnecting ? "Stopped · " : "") + result)
+        if failed > 0 { error = "Some drives could not be opened. Check the network and see Activity for details." }
     }
     func monitorMounts() async {
         while !Task.isCancelled {
@@ -198,13 +335,14 @@ struct Service {
         }
     }
     func refreshMounted() async {
-        guard !refreshingMounted && !working else { return }
+        guard !refreshingMounted && !working && !savingGroup else { return }
         refreshingMounted = true
         defer { refreshingMounted = false }
         do {
             let response = try await Service.request(["action": "mounted"])
             guard response.ok else { mountedError = response.error ?? "Could not refresh connected drives."; return }
-            guard !working else { return }
+            guard !working && !savingGroup else { return }
+            applyLibrary(response)
             mountedError = nil
             applyMounted(response.volumes ?? [])
         } catch { mountedError = "Could not refresh connected drives. Showing the last known list." }
@@ -277,6 +415,7 @@ struct Service {
     func choose(_ server: Server?) {
         guard !working && !loading else { return }
         showingConnected = false
+        showingGroups = false
         selectedID = server?.id
         password = ""
         username = ""
@@ -382,7 +521,7 @@ struct RootView: View {
                 Color(nsColor: .windowBackgroundColor)
                 LinearGradient(colors: [Color.blue.opacity(0.055), .clear, Color.teal.opacity(0.035)], startPoint: .topLeading, endPoint: .bottomTrailing)
                 VStack(spacing: 0) {
-                    if store.showingConnected { connectedPage } else if let server = store.selected { detail(server) } else { home }
+                    if store.showingGroups { groupsPage } else if store.showingConnected { connectedPage } else if let server = store.selected { detail(server) } else { home }
                     statusBar
                 }
             }
@@ -397,6 +536,16 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await store.refreshMounted() }
         }
+        .sheet(isPresented: $store.showingGroupEditor) { groupEditor }
+        .confirmationDialog("Delete group?", isPresented: Binding(get: { store.pendingDeleteGroup != nil }, set: { if !$0 { store.pendingDeleteGroup = nil } })) {
+            if let group = store.pendingDeleteGroup {
+                Button("Delete \(group.name)", role: .destructive) {
+                    store.pendingDeleteGroup = nil
+                    Task { await store.deleteGroup(group) }
+                }
+            }
+            Button("Cancel", role: .cancel) { store.pendingDeleteGroup = nil }
+        } message: { Text("This removes the saved group. Its drives stay connected.") }
         .sheet(isPresented: $store.showingAdd) { addSheet }
         .sheet(isPresented: $store.showingActivity) { activitySheet }
         .alert("Something needs attention", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) {
@@ -415,7 +564,7 @@ struct RootView: View {
                 Label("Overview", systemImage: "square.grid.2x2")
                     .font(.system(size: 13, weight: .medium))
                     .frame(maxWidth: .infinity, alignment: .leading).padding(12)
-                    .background(store.selectedID == nil && !store.showingConnected ? Color.blue.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 12))
+                    .background(store.selectedID == nil && !store.showingConnected && !store.showingGroups ? Color.blue.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 12))
             }.buttonStyle(.plain).disabled(store.working || store.loading)
             Button { store.showConnected() } label: {
                 HStack {
@@ -425,6 +574,14 @@ struct RootView: View {
                         .padding(.horizontal, 7).padding(.vertical, 3).background(.quaternary, in: Capsule())
                 }.font(.system(size: 13, weight: .medium)).padding(12)
                     .background(store.showingConnected ? Color.blue.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 12))
+            }.buttonStyle(.plain).disabled(store.working || store.loading)
+            Button { store.showGroups() } label: {
+                HStack {
+                    Label("Groups", systemImage: "square.stack.3d.up")
+                    Spacer()
+                    if !store.groups.isEmpty { Text("\(store.groups.count)").font(.system(size: 11)) }
+                }.font(.system(size: 13, weight: .medium)).padding(12)
+                    .background(store.showingGroups ? Color.blue.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 12))
             }.buttonStyle(.plain).disabled(store.working || store.loading)
             HStack(spacing: 7) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
@@ -530,6 +687,143 @@ struct RootView: View {
                 }
             }.padding(34)
         }
+    }
+
+    var groupsPage: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text("Groups").font(.system(size: 28, weight: .bold, design: .rounded))
+                        Text("Your saved sets of drives. Connect when you need them.")
+                            .font(.system(size: 13)).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button { store.editGroup() } label: { Label("New group", systemImage: "plus") }
+                        .buttonStyle(PillStyle(primary: true)).disabled(store.working || store.rememberedDrives.isEmpty)
+                }
+                if let message = store.libraryError {
+                    Text(message).font(.system(size: 12)).foregroundStyle(.orange)
+                }
+                if store.groups.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "square.stack.3d.up").font(.system(size: 32, weight: .light)).foregroundStyle(.blue)
+                        Text("Keep your drives together").font(.system(size: 16, weight: .semibold))
+                        Text("Create a group from the drives below, then connect the whole set with one click.")
+                            .font(.system(size: 12)).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    }.frame(maxWidth: .infinity).padding(30).modifier(GlassCard())
+                } else {
+                    ForEach(store.groups) { group in groupCard(group) }
+                }
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("Saved drives").font(.system(size: 17, weight: .semibold))
+                    Text("Drives you've connected to on this Mac. Finder handles sign-in when needed.")
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                }
+                if store.rememberedDrives.isEmpty {
+                    Text("Connect an SMB drive here or in Finder to get started.")
+                        .font(.system(size: 13)).foregroundStyle(.secondary).padding(.vertical, 20)
+                }
+                LazyVStack(spacing: 10) {
+                    ForEach(store.rememberedDrives.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }) { drive in
+                        HStack(spacing: 12) {
+                            Image(systemName: "externaldrive").font(.system(size: 22)).foregroundStyle(.blue)
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(drive.name).font(.system(size: 13, weight: .medium)).lineLimit(1)
+                                Text(drive.serverName).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                            Spacer()
+                            if store.isConnected(drive) {
+                                Label("Connected", systemImage: "checkmark.circle.fill").font(.system(size: 11)).foregroundStyle(.green)
+                            } else {
+                                Button("Connect") { Task { await store.connectSaved([drive], label: drive.name) } }
+                                    .buttonStyle(PillStyle()).disabled(store.working || store.loading)
+                            }
+                        }.padding(16).modifier(GlassCard(radius: 18))
+                    }
+                }
+            }.padding(30)
+        }
+    }
+
+    func groupCard(_ group: DriveGroup) -> some View {
+        let drives = store.drivesForGroup(group)
+        let connected = drives.filter { store.isConnected($0) }.count
+        return VStack(alignment: .leading, spacing: 17) {
+            HStack(spacing: 12) {
+                Image(systemName: "square.stack.3d.up.fill").font(.system(size: 23)).foregroundStyle(.blue)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(group.name).font(.system(size: 17, weight: .semibold)).lineLimit(2)
+                    Text("\(connected) of \(drives.count) connected").font(.system(size: 12)).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Menu {
+                    Button("Edit group") { store.editGroup(group) }
+                    Button("Delete group", role: .destructive) { store.pendingDeleteGroup = group }
+                } label: { Image(systemName: "ellipsis").padding(8) }
+                    .menuStyle(.borderlessButton).fixedSize().disabled(store.working)
+                    .accessibilityLabel("Options for \(group.name)")
+            }
+            Text(drives.prefix(4).map { "\($0.name) · \($0.serverName)" }.joined(separator: "\n") + (drives.count > 4 ? "\n+\(drives.count - 4) more" : ""))
+                .font(.system(size: 12)).foregroundStyle(.secondary).lineSpacing(5)
+            HStack {
+                Text("Connect manually").font(.system(size: 11)).foregroundStyle(.tertiary)
+                Spacer()
+                Button {
+                    Task { await store.connectSaved(drives, label: group.name) }
+                } label: {
+                    Label(connected == drives.count ? "Connected" : "Connect group", systemImage: connected == drives.count ? "checkmark" : "link")
+                }.buttonStyle(PillStyle(primary: connected != drives.count))
+                    .disabled(drives.isEmpty || connected == drives.count || store.working || store.loading)
+            }
+        }.padding(22).modifier(GlassCard())
+    }
+
+    var groupEditor: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                Text(store.editingGroupID == nil ? "New group" : "Edit group")
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                Spacer()
+                Image(systemName: "square.stack.3d.up").font(.system(size: 25)).foregroundStyle(.blue)
+            }
+            field("Group name") { TextField("Editing room", text: $store.newGroupName) }
+            HStack {
+                Text("Choose drives").font(.system(size: 13, weight: .semibold))
+                Spacer()
+                Button("Select connected") {
+                    store.newGroupDriveIDs = Set(store.rememberedDrives.filter { store.isConnected($0) }.map(\.id))
+                }.buttonStyle(.borderless)
+                Button("Clear") { store.newGroupDriveIDs = [] }.buttonStyle(.borderless)
+            }
+            ScrollView {
+                LazyVStack(spacing: 12) {
+                    ForEach(store.rememberedDrives) { drive in
+                        Toggle(isOn: Binding(get: { store.newGroupDriveIDs.contains(drive.id) }, set: { selected in
+                            if selected { store.newGroupDriveIDs.insert(drive.id) } else { store.newGroupDriveIDs.remove(drive.id) }
+                        })) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(drive.name).font(.system(size: 13, weight: .medium))
+                                    Text(drive.serverName).font(.system(size: 11)).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                if store.isConnected(drive) { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).font(.system(size: 12)) }
+                            }
+                        }.toggleStyle(.checkbox).padding(.vertical, 4)
+                    }
+                }.padding(4)
+            }.frame(maxHeight: .infinity)
+            if let message = store.groupEditorError { Text(message).font(.system(size: 12)).foregroundStyle(.red) }
+            HStack {
+                Button("Cancel") { store.showingGroupEditor = false }.buttonStyle(PillStyle()).keyboardShortcut(.cancelAction)
+                Text("\(store.newGroupDriveIDs.count) selected").font(.system(size: 11)).foregroundStyle(.secondary)
+                Spacer()
+                Button(store.savingGroup ? "Saving…" : "Save group") { Task { await store.saveGroup() } }
+                    .buttonStyle(PillStyle(primary: true)).keyboardShortcut(.defaultAction)
+                    .disabled(store.newGroupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.newGroupName.count > 80 || store.newGroupDriveIDs.isEmpty || store.savingGroup)
+            }
+        }.padding(28).frame(width: 490, height: 560).disabled(store.savingGroup)
     }
 
     var connectedPage: some View {
@@ -736,6 +1030,9 @@ struct RootView: View {
             else { Circle().fill(Color.green.opacity(0.7)).frame(width: 5, height: 5) }
             Text(store.status).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
             Spacer()
+            if store.connectingLabel != nil {
+                Button("Stop") { store.stopConnecting = true }.buttonStyle(.borderless).font(.system(size: 11))
+            }
             Button { store.showingActivity = true } label: { Image(systemName: "clock.arrow.circlepath") }
                 .buttonStyle(.plain).foregroundStyle(.secondary).help("Activity")
                 .accessibilityLabel("Activity")

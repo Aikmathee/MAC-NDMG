@@ -5,7 +5,7 @@ import json
 import logging
 import sys
 from src.models.share_item import HostEntry, ShareItem
-from src.services import config_loader, lan_scanner, mounter, network_mounts
+from src.services import config_loader, lan_scanner, mounter, network_mounts, connection_groups
 
 
 def drive_dict(share):
@@ -22,6 +22,25 @@ def host_dict(host):
 def dispatch(request):
     action = request.get("action")
     config = request.get("config")
+    if action in ("connections", "save_group", "delete_group", "reconnect"):
+        state = None
+        status = None
+        volumes = None
+        if action == "save_group":
+            state = connection_groups.save_group(request.get("name"), request.get("drive_ids"), request.get("group_id"))
+        elif action == "delete_group":
+            state = connection_groups.delete_group(request.get("group_id"))
+        elif action == "reconnect":
+            status, volumes = connection_groups.reconnect(request.get("drive_id"))
+        else:
+            state = connection_groups.remember_mounts(network_mounts.list_network_mounts())
+        result = {"ok": True}
+        if state is not None:
+            result.update({"remembered": state["drives"], "groups": state["groups"]})
+        if status is not None:
+            result["connection_state"] = status
+            result["volumes"] = [v.to_dict() for v in volumes]
+        return result
     if action in ("mounted", "eject_volume", "reveal_volume"):
         ok, error = True, ""
         if action != "mounted":
@@ -34,8 +53,15 @@ def dispatch(request):
                 ok = network_mounts.reveal_volume(volume_id)
                 if not ok:
                     error = "This drive is no longer connected."
-        return {"ok": ok, "error": error,
-                "volumes": [v.to_dict() for v in network_mounts.list_network_mounts()]}
+        volumes = network_mounts.list_network_mounts()
+        result = {"ok": ok, "error": error, "volumes": [v.to_dict() for v in volumes]}
+        try:
+            state = connection_groups.remember_mounts(volumes)
+            result.update({"remembered": state["drives"], "groups": state["groups"]})
+        except (OSError, ValueError, KeyError, TypeError):
+            # A damaged history file must not hide live drives or disable eject.
+            result["storage_error"] = "Saved connections could not be read. Your connected drives are still available."
+        return result
     if action == "saved":
         return {"hosts": [host_dict(h) for h in config_loader.load_hosts(config)], "ok": True}
     if action == "scan":
