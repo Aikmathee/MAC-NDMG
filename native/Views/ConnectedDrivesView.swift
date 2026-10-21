@@ -47,15 +47,17 @@ extension RootView {
         HStack(spacing: 13) {
             Image(systemName: "externaldrive.fill").font(.system(size: 25)).foregroundStyle(.blue)
             VStack(alignment: .leading, spacing: 5) {
-                Text(volume.name).font(.system(size: 13, weight: .semibold)).lineLimit(1)
-                Text(volume.serverName).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
-                Text(volume.mountPoint).font(.system(size: 10)).foregroundStyle(.tertiary).lineLimit(1)
+                Text(volume.name).font(.body.weight(.semibold)).lineLimit(1)
+                Text(volume.serverName).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Text(volume.mountPoint).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 8)
-            Button("Open") { Task { await store.openMounted(volume) } }
-                .buttonStyle(.borderless).disabled(store.working)
+            Button { Task { await store.openMounted(volume) } } label: {
+                Text("Open").padding(.horizontal, 8).padding(.vertical, 7)
+            }.buttonStyle(.borderless).disabled(store.working)
             Button { Task { await store.ejectMounted(volume) } } label: {
                 Label(store.ejectingVolumeID == volume.id ? "Ejecting…" : "Eject", systemImage: "eject")
+                    .padding(.horizontal, 8).padding(.vertical, 7)
             }.buttonStyle(.borderless).disabled(store.working || store.loading)
                 .accessibilityLabel("Eject \(volume.name) from \(volume.serverName) at \(volume.mountPoint)")
         }.padding(.horizontal, 16).padding(.vertical, 12).modifier(ContentCard(radius: 19))

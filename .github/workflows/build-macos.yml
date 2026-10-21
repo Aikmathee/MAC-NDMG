@@ -48,7 +48,7 @@ jobs:
       - name: Build native app
         run: python scripts/build_app.py --require-modern-sdk
       - name: Verify bundled service on a clean configuration
-        run: python scripts/verify_bundle.py
+        run: python scripts/verify_bundle.py --require-modern-sdk
       - name: Package DMG and ZIP
         run: python scripts/package_release.py
       - uses: actions/upload-artifact@v4

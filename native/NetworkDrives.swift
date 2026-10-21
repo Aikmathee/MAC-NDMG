@@ -685,6 +685,7 @@ struct RootView: View {
             .toolbar { appToolbar }
         }
         .navigationSplitViewStyle(.balanced)
+        .background(WindowFrameAnchor().frame(width: 0, height: 0))
         .frame(minWidth: 800, minHeight: 620)
         .tint(.accentColor)
         .preferredColorScheme(chosenColorScheme)

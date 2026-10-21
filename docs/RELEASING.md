@@ -1,6 +1,6 @@
 # Releases
 
-Every release builds separate Apple Silicon and Intel apps on GitHub-hosted macOS runners. A release is published only after both builds, service tests, signature verification and packaging succeed. DMG and ZIP files include the app and installation instructions; Python is bundled. SHA256SUMS.txt covers all four downloads.
+Every release builds separate Apple Silicon and Intel apps with an installed stable Xcode 26 on GitHub-hosted macOS runners. The build and verification steps both require macOS SDK 26+ so downloads include typed Liquid Glass controls. A release is published only after both builds, service tests, signature verification and packaging succeed. DMG and ZIP files include the app and installation instructions; Python is bundled. SHA256SUMS.txt covers all four downloads.
 
 1. Update `VERSION`, `CHANGELOG.md`, and `docs/releases/v<version>.md`.
 2. Run tests, commit and push `main`.

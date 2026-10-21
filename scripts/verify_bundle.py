@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Check packaged version, signature and clean-install JSON protocol."""
+import argparse
 import json
 import os
 from pathlib import Path
@@ -12,10 +13,16 @@ APP = ROOT / 'dist/Network Drive Manager.app'
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--require-modern-sdk", action="store_true")
+    args = parser.parse_args()
     subprocess.run(['codesign', '--verify', '--deep', '--strict', str(APP)], check=True)
     with (APP / 'Contents/Info.plist').open('rb') as handle:
         info = plistlib.load(handle)
     assert info['CFBundleShortVersionString'] == (ROOT / 'VERSION').read_text().strip()
+    if args.require_modern_sdk:
+        assert info.get('NDMGModernGlassBuild') is True, 'Release must enable typed Liquid Glass APIs'
+        assert int(info['NDMGSDKVersion'].split('.')[0]) >= 26
     with tempfile.TemporaryDirectory(prefix='ndmg-verify-') as folder:
         env = dict(os.environ, HOME=folder)
         executable = APP / 'Contents/Resources/service/ndmg-service'

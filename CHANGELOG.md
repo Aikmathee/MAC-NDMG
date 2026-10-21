@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.2.0
+
+- Native resizable split navigation and a system Liquid Glass toolbar on macOS 26.
+- System glass buttons and a shared glass surface for selection actions.
+- A practical Overview showing connected drives and compact saved groups first.
+- Standard content surfaces, larger row action targets and native grouped sign-in/add forms.
+- App window size restoration, semantic colors and accessibility-aware materials/animation.
+- Separate design and page files; SDK 26 is required and verified for both release architectures.
+
 ## 2.1.1
 
 - Rounded native selection highlights in Groups, Connected and shared-drive lists.

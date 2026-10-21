@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 extension RootView {
     var pageTitle: String {
@@ -45,8 +46,47 @@ extension RootView {
                     Spacer()
                 }.padding(20).modifier(ContentCard())
             } else {
-                ForEach(Array(store.groups.prefix(2))) { group in groupCard(group) }
+                ForEach(Array(store.groups.prefix(2))) { group in overviewGroupRow(group) }
             }
         }
     }
+    func overviewGroupRow(_ group: DriveGroup) -> some View {
+        let drives = store.drivesForGroup(group)
+        let connected = drives.filter { store.isConnected($0) }.count
+        return HStack(spacing: 14) {
+            Image(systemName: "square.stack.3d.up.fill").font(.title2).foregroundStyle(.tint)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(group.name).font(.headline).lineLimit(1)
+                Text("\(connected) of \(drives.count) connected").font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 12)
+            Button(connected == drives.count ? "Connected" : "Connect group") {
+                Task { await store.connectSaved(drives, label: group.name) }
+            }.buttonStyle(PillStyle(primary: connected != drives.count))
+                .disabled(store.working || drives.isEmpty || connected == drives.count)
+        }.padding(18).modifier(ContentCard(radius: DesignTokens.rowRadius))
+    }
+
+}
+
+
+/// Remember a normal, resizable window instead of inheriting a full-screen-sized frame.
+struct WindowFrameAnchor: NSViewRepresentable {
+    final class Anchor: NSView {
+        static var configured = Set<ObjectIdentifier>()
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard let window, Self.configured.insert(ObjectIdentifier(window)).inserted else { return }
+            DispatchQueue.main.async { [weak window] in
+                guard let window else { return }
+                if !window.setFrameUsingName("NetworkDrives.main") {
+                    window.setContentSize(NSSize(width: 1100, height: 780))
+                    window.center()
+                }
+                window.setFrameAutosaveName("NetworkDrives.main")
+            }
+        }
+    }
+    func makeNSView(context: Context) -> Anchor { Anchor() }
+    func updateNSView(_ view: Anchor, context: Context) {}
 }

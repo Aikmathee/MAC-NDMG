@@ -30,6 +30,10 @@ def clean():
 
 def build_native(require_modern_sdk=False):
     """Build a SwiftUI macOS app with its Python service bundled privately."""
+    sdk_version = subprocess.check_output(["xcrun", "--show-sdk-version"], text=True).strip()
+    modern = int(sdk_version.split(".")[0]) >= 26
+    if require_modern_sdk and not modern:
+        raise SystemExit("Distribution builds require macOS SDK 26 or newer.")
     subprocess.check_call([
         sys.executable, "-m", "PyInstaller", "--name", "ndmg-service",
         "--onedir", "--noconfirm", "--paths", str(Path.cwd()),
@@ -46,10 +50,6 @@ def build_native(require_modern_sdk=False):
     resources.mkdir(parents=True)
     shutil.copytree("dist/native-service/ndmg-service", resources / "service")
     architecture = "arm64" if platform.machine() == "arm64" else "x86_64"
-    sdk_version = subprocess.check_output(["xcrun", "--show-sdk-version"], text=True).strip()
-    modern = int(sdk_version.split(".")[0]) >= 26
-    if require_modern_sdk and not modern:
-        raise SystemExit("Distribution builds require macOS SDK 26 or newer.")
     sources = sorted(str(p) for p in Path("native").rglob("*.swift") if "tests" not in p.parts and p.name != "AppIcon.swift")
     subprocess.check_call([
         "xcrun", "swiftc", "-parse-as-library", "-O",
