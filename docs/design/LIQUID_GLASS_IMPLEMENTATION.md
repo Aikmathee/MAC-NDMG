@@ -1,4 +1,4 @@
-# ผลการปรับ Liquid Glass — v2.2.0
+# ผลการปรับ Liquid Glass — v2.2.0 / v2.2.1
 
 วันที่: 21 ตุลาคม 2026
 
@@ -30,7 +30,7 @@
 | Accessibility semantics | ตรวจชื่อปุ่ม, secure password field, switch และสถานะ selected ผ่าน accessibility tree |
 | ข้อมูลส่วนตัว | ไม่อัปโหลดภาพหน้าจอที่มีชื่อเครื่องหรือ IP จริง; ไม่มีข้อมูลตัวอย่างจากการตรวจค้างในรายการเซิร์ฟเวอร์ที่บันทึก |
 
-ผล build ของ release สุดท้ายตรวจใน GitHub Actions และหน้า Releases ของ v2.2.0
+ผล build ของ release สุดท้ายตรวจใน GitHub Actions และหน้า Releases ของ v2.2.1; รุ่นแก้ไขนี้อ่าน frame ที่ macOS บันทึกไว้ก่อนใช้ขนาดเริ่มต้น
 
 ## ข้อจำกัดที่ยังต้องระบุ
 

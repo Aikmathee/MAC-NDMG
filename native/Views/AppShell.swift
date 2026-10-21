@@ -84,7 +84,9 @@ struct WindowFrameAnchor: NSViewRepresentable {
             guard let window, Self.configured.insert(ObjectIdentifier(window)).inserted else { return }
             DispatchQueue.main.async { [weak window] in
                 guard let window else { return }
-                if !window.setFrameUsingName("NetworkDrives.main") {
+                let restored = window.setFrameUsingName("main.RootView-1-AppWindow-1")
+                    || window.setFrameUsingName("NetworkDrives.main")
+                if !restored {
                     window.setContentSize(NSSize(width: 1100, height: 780))
                     window.center()
                 }

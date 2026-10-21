@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.2.1
+
+- Preserve the window frame already saved by macOS when initializing the new window restoration policy.
+
 ## 2.2.0
 
 - Native resizable split navigation and a system Liquid Glass toolbar on macOS 26.
