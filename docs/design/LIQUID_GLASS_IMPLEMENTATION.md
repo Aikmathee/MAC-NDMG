@@ -47,3 +47,10 @@
 เครื่องที่มี SDK 26+ ใช้คำสั่งใน Development guide เพื่อ build ตัวจริง หากใช้ SDK 15.5 จะได้ compatibility build สำหรับตรวจ layout ซึ่งไม่ใช่ตัวแทนของปุ่ม Liquid Glass บนไฟล์แจก ต้องใช้ artifact/release SDK 26 สำหรับ visual QA ขั้นสุดท้าย
 
 [แผนต้นฉบับ](LIQUID_GLASS_PLAN.md) · [Development](../DEVELOPMENT.md)
+
+
+## Scroll boundaries — 2.2.2
+
+The detail viewport clips scrolled content below a visible native toolbar, so the page heading cannot overlap the window title. Server and drive lists share a 20–24 pt noninteractive material veil with a graduated alpha mask at each vertical edge. SDK 26 builds also request the system soft scroll edge style. The overview Servers section pins its heading with a material backdrop fading into the cards below. Semantic materials follow Light/Dark; Reduce Transparency uses an opaque semantic base. These layers do not intercept selection, keyboard navigation, context menus, or buttons.
+
+Validation: compatibility compilation targeting macOS 13 and 43 service tests passed. Distribution build and on-device scroll validation are recorded after the SDK 26 build below.

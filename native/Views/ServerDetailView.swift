@@ -57,7 +57,8 @@ extension RootView {
                 if server.drives.isEmpty {
                     Text("Choose Load drives to sign in and see shared drives.").font(.system(size: 13)).foregroundStyle(.secondary).padding(.vertical, 40)
                 }
-            }.listStyle(.inset(alternatesRowBackgrounds: false)).scrollContentBackground(.hidden).disabled(store.working)
+            }.listStyle(.inset(alternatesRowBackgrounds: false)).scrollContentBackground(.hidden)
+                .modifier(ScrollBoundaryTreatment(depth: 20)).disabled(store.working)
                 .contextMenu(forSelectionType: String.self) { ids in
                     Button("Connect selected") { store.selectedDrives = ids; Task { await store.batch("mount") } }.disabled(ids.isEmpty)
                     Button("Eject selected") { store.selectedDrives = ids; Task { await store.batch("eject") } }.disabled(ids.isEmpty)

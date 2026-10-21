@@ -28,7 +28,8 @@ extension RootView {
                     Text(store.refreshingMounted ? "Checking connected drives…" : "No network drives connected")
                         .foregroundStyle(.secondary).padding(30)
                 }
-            }.listStyle(.inset(alternatesRowBackgrounds: false)).scrollContentBackground(.hidden).disabled(store.working)
+            }.listStyle(.inset(alternatesRowBackgrounds: false)).scrollContentBackground(.hidden)
+                .modifier(ScrollBoundaryTreatment(depth: 20)).disabled(store.working)
                 .contextMenu(forSelectionType: String.self) { ids in mountedContext(ids) }
             if !store.selectedMountedIDs.isEmpty {
                 HStack {

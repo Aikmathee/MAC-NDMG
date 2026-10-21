@@ -52,7 +52,8 @@ extension RootView {
                         .tag("drive:" + drive.id)
                         .listRowSeparator(.hidden).listRowBackground(Color.clear)
                 }
-            }.listStyle(.inset(alternatesRowBackgrounds: false)).scrollContentBackground(.hidden).disabled(store.working)
+            }.listStyle(.inset(alternatesRowBackgrounds: false)).scrollContentBackground(.hidden)
+                .modifier(ScrollBoundaryTreatment(depth: 20)).disabled(store.working)
                 .contextMenu(forSelectionType: String.self) { ids in libraryContext(ids) }
             if !store.librarySelection.isEmpty {
                 HStack {

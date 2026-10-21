@@ -681,7 +681,9 @@ struct RootView: View {
                 statusBar
             }
             .background(Color(nsColor: .windowBackgroundColor))
+            .clipped()
             .navigationTitle(pageTitle)
+            .toolbarBackground(.visible, for: .windowToolbar)
             .toolbar { appToolbar }
         }
         .navigationSplitViewStyle(.balanced)
@@ -732,6 +734,7 @@ struct RootView: View {
                 }
             }
         }.listStyle(.sidebar).scrollContentBackground(.hidden)
+            .modifier(ScrollBoundaryTreatment(depth: 20))
             .disabled(store.working || store.loading)
             .contextMenu(forSelectionType: String.self) { ids in serverContext(ids) }
     }
