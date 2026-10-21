@@ -29,6 +29,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Select Xcode 26
+        run: |
+          python scripts/select_xcode.py
       - name: Check architecture and release version
         env:
           EXPECTED_CPU: ${{ matrix.cpu }}
@@ -43,7 +46,7 @@ jobs:
       - name: Install build tools
         run: python -m pip install -r requirements.txt
       - name: Build native app
-        run: python scripts/build_app.py
+        run: python scripts/build_app.py --require-modern-sdk
       - name: Verify bundled service on a clean configuration
         run: python scripts/verify_bundle.py
       - name: Package DMG and ZIP

@@ -28,7 +28,7 @@ def clean():
             print(f"  Removed {f}")
 
 
-def build_native():
+def build_native(require_modern_sdk=False):
     """Build a SwiftUI macOS app with its Python service bundled privately."""
     subprocess.check_call([
         sys.executable, "-m", "PyInstaller", "--name", "ndmg-service",
@@ -46,11 +46,16 @@ def build_native():
     resources.mkdir(parents=True)
     shutil.copytree("dist/native-service/ndmg-service", resources / "service")
     architecture = "arm64" if platform.machine() == "arm64" else "x86_64"
+    sdk_version = subprocess.check_output(["xcrun", "--show-sdk-version"], text=True).strip()
+    modern = int(sdk_version.split(".")[0]) >= 26
+    if require_modern_sdk and not modern:
+        raise SystemExit("Distribution builds require macOS SDK 26 or newer.")
+    sources = sorted(str(p) for p in Path("native").rglob("*.swift") if "tests" not in p.parts and p.name != "AppIcon.swift")
     subprocess.check_call([
         "xcrun", "swiftc", "-parse-as-library", "-O",
         "-target", f"{architecture}-apple-macos13.0",
         "-module-cache-path", str(Path("build/swift-cache").resolve()),
-        "native/NetworkDrives.swift", "native/CredentialVault.swift", "-o", str(macos / APP_NAME),
+        *(["-D", "MODERN_GLASS"] if modern else []), *sources, "-o", str(macos / APP_NAME),
     ])
     icon_tool = Path("build/make-app-icon")
     subprocess.check_call(["xcrun", "swiftc", "-module-cache-path", str(Path("build/swift-cache").resolve()),
@@ -63,7 +68,7 @@ def build_native():
         "CFBundlePackageType": "APPL", "CFBundleShortVersionString": Path("VERSION").read_text().strip(),
         "CFBundleVersion": Path("VERSION").read_text().strip(), "LSMinimumSystemVersion": "13.0",
         "CFBundleIconFile": "AppIcon",
-        "NSHighResolutionCapable": True,
+        "NSHighResolutionCapable": True, "NDMGModernGlassBuild": modern, "NDMGSDKVersion": sdk_version,
         "NSLocalNetworkUsageDescription": "Find shared drives on your local network and connect to the servers you choose.",
         "NSBonjourServices": ["_smb._tcp"],
     }
@@ -82,13 +87,14 @@ def main():
         "--clean", action="store_true",
         help="Remove previous build artefacts before building",
     )
+    parser.add_argument("--require-modern-sdk", action="store_true", help="Require SDK 26+ for release builds")
     args = parser.parse_args()
 
     if args.clean:
         print("Cleaning previous build artefacts…")
         clean()
 
-    build_native()
+    build_native(args.require_modern_sdk)
 
 
 if __name__ == "__main__":
