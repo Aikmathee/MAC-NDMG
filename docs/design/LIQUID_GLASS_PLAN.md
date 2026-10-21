@@ -1,8 +1,11 @@
 # แผนปรับ Network Drives ให้เป็น Liquid Glass บน Mac
 
-วันที่: 21 ตุลาคม 2026  
-สถานะ: **อนุมัติให้ดำเนินการแล้ว — เริ่มส่งมอบใน v2.2.0**  
-ผลการทำงานและข้อจำกัด: [LIQUID_GLASS_IMPLEMENTATION.md](LIQUID_GLASS_IMPLEMENTATION.md)  
+วันที่: 21 ตุลาคม 2026
+
+สถานะ: **อนุมัติให้ดำเนินการแล้ว — เริ่มส่งมอบใน v2.2.0**
+
+ผลการทำงานและข้อจำกัด: [LIQUID_GLASS_IMPLEMENTATION.md](LIQUID_GLASS_IMPLEMENTATION.md)
+
 ฐานที่ตรวจ: โค้ด v2.1.1 และภาพหน้า Groups / Connected ที่ตรวจในแอพจริง
 
 ## 1. เป้าหมาย
