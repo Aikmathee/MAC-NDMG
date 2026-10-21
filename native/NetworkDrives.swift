@@ -690,6 +690,8 @@ struct RootView: View {
         .tint(.accentColor)
         .preferredColorScheme(chosenColorScheme)
         .onAppear { applyAppearance() }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResizeNotification)) { persistMainFrame($0) }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didMoveNotification)) { persistMainFrame($0) }
         .onChange(of: appearance) { _ in applyAppearance() }
         .task { await store.start() }
         .task { await store.monitorMounts() }

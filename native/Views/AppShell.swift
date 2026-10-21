@@ -2,6 +2,11 @@ import SwiftUI
 import AppKit
 
 extension RootView {
+    func persistMainFrame(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow,
+              window === NSApp.mainWindow, window.sheetParent == nil else { return }
+        window.saveFrame(usingName: "NetworkDrives.main")
+    }
     var pageTitle: String {
         if store.selectedServerIDs.count > 1 { return "Selected servers" }
         if store.showingConnected { return "Connected" }
@@ -84,6 +89,7 @@ struct WindowFrameAnchor: NSViewRepresentable {
                     window.center()
                 }
                 window.setFrameAutosaveName("NetworkDrives.main")
+                window.saveFrame(usingName: "NetworkDrives.main")
             }
         }
     }
