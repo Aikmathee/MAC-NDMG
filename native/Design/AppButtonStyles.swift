@@ -8,12 +8,12 @@ struct PillStyle: PrimitiveButtonStyle {
         Group {
             if insideActionBar {
                 if primary { Button(configuration).buttonStyle(.borderedProminent) }
-                else { Button(configuration).buttonStyle(.borderless) }
+                else { Button(configuration).buttonStyle(FramedButtonStyle()) }
             } else {
                 #if MODERN_GLASS
                 if #available(macOS 26, *) {
                     if primary { Button(configuration).buttonStyle(.glassProminent) }
-                    else { Button(configuration).buttonStyle(.glass) }
+                    else { Button(configuration).buttonStyle(.glass).tint(.gray) }
                 } else { fallback(configuration) }
                 #else
                 fallback(configuration)
@@ -23,6 +23,13 @@ struct PillStyle: PrimitiveButtonStyle {
     }
     @ViewBuilder private func fallback(_ configuration: Configuration) -> some View {
         if primary { Button(configuration).buttonStyle(.borderedProminent) }
-        else { Button(configuration).buttonStyle(.bordered) }
+        else { Button(configuration).buttonStyle(.bordered).tint(.gray) }
+    }
+}
+
+/// Small content actions have a visible native bezel in every appearance.
+struct FramedButtonStyle: PrimitiveButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Button(configuration).buttonStyle(.bordered).controlSize(.regular).tint(.gray)
     }
 }

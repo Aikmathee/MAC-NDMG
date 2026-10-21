@@ -3,7 +3,7 @@ import SwiftUI
 extension RootView {
     var home: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 28, pinnedViews: [.sectionHeaders]) {
+            LazyVStack(alignment: .leading, spacing: 28) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Your workspace").font(.system(size: 30, weight: .bold, design: .rounded))
                     Text(store.mountedVolumes.isEmpty ? "Connect a drive to get started." : "\(store.mountedVolumes.count) drives connected · Ready to work")
@@ -31,7 +31,7 @@ extension RootView {
                     }
                 } header: { overviewServersHeader }
             }.padding(34)
-        }.modifier(ScrollBoundaryTreatment())
+        }.modifier(NativeScrollEdges())
     }
 
     var overviewServersHeader: some View {
@@ -41,26 +41,8 @@ extension RootView {
             if store.scanning { ProgressView().controlSize(.small) }
             Button { store.showingAdd = true } label: {
                 Label("Add server", systemImage: "plus")
-            }.buttonStyle(.borderless)
+            }.buttonStyle(FramedButtonStyle())
         }
         .padding(.vertical, 14)
-        .background {
-            Rectangle().fill(.ultraThinMaterial)
-                .padding(.horizontal, -34)
-                .padding(.bottom, -16)
-                .mask(LinearGradient(stops: [
-                    .init(color: .clear, location: 0),
-                    .init(color: .black, location: 0.25),
-                    .init(color: .black, location: 0.65),
-                    .init(color: .clear, location: 1)
-                ], startPoint: .top, endPoint: .bottom))
-                .mask(LinearGradient(stops: [
-                    .init(color: .clear, location: 0),
-                    .init(color: .black, location: 0.06),
-                    .init(color: .black, location: 0.94),
-                    .init(color: .clear, location: 1)
-                ], startPoint: .leading, endPoint: .trailing))
-                .allowsHitTesting(false)
-        }
     }
 }

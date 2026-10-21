@@ -39,7 +39,7 @@ extension RootView {
                 Spacer()
                 Button(store.groups.isEmpty ? "New group" : "View all") {
                     if store.groups.isEmpty { store.editGroup() } else { store.showGroups() }
-                }.buttonStyle(.borderless).disabled(store.rememberedDrives.isEmpty || store.working)
+                }.buttonStyle(FramedButtonStyle()).disabled(store.rememberedDrives.isEmpty || store.working)
             }
             if store.groups.isEmpty {
                 HStack(spacing: 14) {

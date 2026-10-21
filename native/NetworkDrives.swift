@@ -701,8 +701,9 @@ struct RootView: View {
                 else if store.showingConnected { connectedPage }
                 else if let server = store.selected { detail(server) }
                 else { home }
-                statusBar
             }
+            .modifier(NativeSafeAreaBar(edge: .bottom) { statusBar })
+            .modifier(NativeScrollEdges())
             .background(Color(nsColor: .windowBackgroundColor))
             .clipped()
             .navigationTitle(pageTitle)
@@ -757,7 +758,7 @@ struct RootView: View {
                 }
             }
         }.listStyle(.sidebar).scrollContentBackground(.hidden)
-            .modifier(ScrollBoundaryTreatment(depth: 20))
+            .modifier(NativeScrollEdges())
             .disabled(store.working || store.loading)
             .contextMenu(forSelectionType: String.self) { ids in serverContext(ids) }
     }
@@ -849,6 +850,12 @@ struct RootView: View {
     }
 
     var sidebar: some View {
+        serverSidebarList
+            .modifier(NativeSafeAreaBar(edge: .top) { sidebarHeader })
+            .modifier(NativeSafeAreaBar(edge: .bottom) { sidebarFooter })
+    }
+
+    var sidebarHeader: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(spacing: 10) {
                 Image(systemName: "externaldrive.connected.to.line.below")
@@ -883,7 +890,11 @@ struct RootView: View {
                 TextField("Search servers", text: $store.search).textFieldStyle(.plain)
             }.font(.system(size: 12)).padding(10)
                 .background(.quaternary.opacity(0.45), in: Capsule())
-            serverSidebarList
+        }.padding(.horizontal, 16).padding(.bottom, 12)
+    }
+
+    var sidebarFooter: some View {
+        VStack(alignment: .leading, spacing: 18) {
             Button { store.showingAdd = true } label: {
                 Label("Add server", systemImage: "plus").frame(maxWidth: .infinity)
             }.buttonStyle(PillStyle()).disabled(store.working || store.loading)
@@ -901,8 +912,7 @@ struct RootView: View {
                 }.font(.system(size: 11)).padding(.horizontal, 4)
             }.menuStyle(.borderlessButton).fixedSize(horizontal: false, vertical: true)
                 .accessibilityLabel("Appearance, \(appearanceName)")
-        }.padding(.horizontal, 16).padding(.bottom, 18)
-
+        }.padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 18)
     }
 
     var statusBar: some View {
@@ -912,12 +922,12 @@ struct RootView: View {
             Text(store.status).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
             Spacer()
             if store.connectingLabel != nil {
-                Button("Stop") { store.stopConnecting = true }.buttonStyle(.borderless).font(.system(size: 11))
+                Button("Stop") { store.stopConnecting = true }.buttonStyle(FramedButtonStyle()).font(.system(size: 11))
             }
             Button { store.showingActivity = true } label: { Image(systemName: "clock.arrow.circlepath") }
-                .buttonStyle(.plain).foregroundStyle(.secondary).help("Activity")
+                .buttonStyle(FramedButtonStyle()).help("Activity")
                 .accessibilityLabel("Activity")
-        }.padding(.horizontal, 30).padding(.vertical, 12)
+        }.padding(.horizontal, 24).padding(.vertical, 8)
     }
 
 

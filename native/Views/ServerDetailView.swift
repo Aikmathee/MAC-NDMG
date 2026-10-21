@@ -17,7 +17,29 @@ extension RootView {
     }
 
     func detail(_ server: Server) -> some View {
-        VStack(alignment: .leading, spacing: 20) {
+        List(selection: $store.selectedDrives) {
+            ForEach(server.drives) { drive in
+                driveRow(drive).modifier(CardSelection(selected: store.selectedDrives.contains(drive.id), radius: 17))
+                    .tag(drive.id).listRowSeparator(.hidden).listRowBackground(Color.clear)
+            }
+            if server.drives.isEmpty {
+                Text("Choose Load drives to sign in and see shared drives.").font(.system(size: 13)).foregroundStyle(.secondary).padding(.vertical, 40)
+            }
+        }.listStyle(.inset(alternatesRowBackgrounds: false)).scrollContentBackground(.hidden)
+            .modifier(NativeScrollEdges()).disabled(store.working)
+            .contextMenu(forSelectionType: String.self) { ids in
+                Button("Connect selected") { store.selectedDrives = ids; Task { await store.batch("mount") } }.disabled(ids.isEmpty)
+                Button("Eject selected") { store.selectedDrives = ids; Task { await store.batch("eject") } }.disabled(ids.isEmpty)
+                Divider()
+                Button("Connect all") { Task { await store.connectServers([server.id]) } }
+                Button("Eject all") { Task { await store.ejectVolumes(store.volumesForServers([server.id])) } }
+            }
+            .modifier(NativeSafeAreaBar(edge: .top) { serverHeader(server) })
+            .modifier(NativeSafeAreaBar(edge: .bottom) { serverActions })
+            .padding(30)
+    }
+    func serverHeader(_ server: Server) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
             HStack(spacing: 14) {
                 Image(systemName: server.symbol).font(.system(size: 26)).foregroundStyle(.blue)
                     .frame(width: 60, height: 60).modifier(ContentCard(radius: 18))
@@ -46,36 +68,24 @@ extension RootView {
             HStack {
                 Text("Shared drives · \(server.drives.count)").font(.system(size: 16, weight: .semibold))
                 Spacer()
-                Button("Select all") { store.selectedDrives = Set(server.drives.map(\.id)) }.buttonStyle(.borderless).disabled(store.working)
-                Button("Deselect all") { store.selectedDrives = [] }.buttonStyle(.borderless).disabled(store.working)
+                Button("Select all") { store.selectedDrives = Set(server.drives.map(\.id)) }.buttonStyle(FramedButtonStyle()).disabled(store.working)
+                Button("Deselect all") { store.selectedDrives = [] }.buttonStyle(FramedButtonStyle()).disabled(store.working)
             }
-            List(selection: $store.selectedDrives) {
-                ForEach(server.drives) { drive in
-                    driveRow(drive).modifier(CardSelection(selected: store.selectedDrives.contains(drive.id), radius: 17))
-                        .tag(drive.id).listRowSeparator(.hidden).listRowBackground(Color.clear)
-                }
-                if server.drives.isEmpty {
-                    Text("Choose Load drives to sign in and see shared drives.").font(.system(size: 13)).foregroundStyle(.secondary).padding(.vertical, 40)
-                }
-            }.listStyle(.inset(alternatesRowBackgrounds: false)).scrollContentBackground(.hidden)
-                .modifier(ScrollBoundaryTreatment(depth: 20)).disabled(store.working)
-                .contextMenu(forSelectionType: String.self) { ids in
-                    Button("Connect selected") { store.selectedDrives = ids; Task { await store.batch("mount") } }.disabled(ids.isEmpty)
-                    Button("Eject selected") { store.selectedDrives = ids; Task { await store.batch("eject") } }.disabled(ids.isEmpty)
-                    Divider()
-                    Button("Connect all") { Task { await store.connectServers([server.id]) } }
-                    Button("Eject all") { Task { await store.ejectVolumes(store.volumesForServers([server.id])) } }
-                }
-            HStack {
-                Text("\(store.selectedDrives.count) selected").font(.system(size: 12)).foregroundStyle(.secondary)
-                Spacer()
-                Button("Eject selected") { Task { await store.batch("eject") } }
-                    .buttonStyle(PillStyle()).disabled(!store.connectedSelection || store.working)
-                Button("Connect selected") { Task { await store.batch("mount") } }
-                    .buttonStyle(PillStyle(primary: true)).disabled(store.selectedDrives.isEmpty || store.working)
-            }.modifier(SelectionActionBar())
-        }.padding(30)
+        }.padding(.bottom, 16)
     }
+
+    @ViewBuilder var serverActions: some View {
+        HStack {
+            Text("\(store.selectedDrives.count) selected").font(.system(size: 12)).foregroundStyle(.secondary)
+            Spacer()
+            Button("Eject selected") { Task { await store.batch("eject") } }
+                .buttonStyle(PillStyle()).disabled(!store.connectedSelection || store.working)
+            Button("Connect selected") { Task { await store.batch("mount") } }
+                .buttonStyle(PillStyle(primary: true)).disabled(store.selectedDrives.isEmpty || store.working)
+        }.modifier(SelectionActionBar())
+            .padding(.top, 12)
+    }
+
     func field<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title).font(.subheadline).foregroundStyle(.secondary)

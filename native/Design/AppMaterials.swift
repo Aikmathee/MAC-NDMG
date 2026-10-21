@@ -94,43 +94,32 @@ struct GlassControlGroup<Content: View>: View {
     }
 }
 
-/// A noninteractive material veil softens the viewport, rather than blurring rows.
-/// Clipping also prevents scrolled headings from painting into the window toolbar.
-struct ScrollBoundaryTreatment: ViewModifier {
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    var depth: CGFloat = 24
-
-    private func veil(top: Bool) -> some View {
-        Rectangle()
-            .fill(.ultraThinMaterial)
-            .overlay {
-                if reduceTransparency { Color(nsColor: .windowBackgroundColor) }
-            }
-            .mask(LinearGradient(
-                stops: [.init(color: .black, location: 0),
-                        .init(color: .black.opacity(0.75), location: 0.25),
-                        .init(color: .clear, location: 1)],
-                startPoint: top ? .top : .bottom,
-                endPoint: top ? .bottom : .top))
-            .frame(height: depth)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-    }
-
+/// Let the system decide the extent and appearance from actual scroll position.
+struct NativeScrollEdges: ViewModifier {
     @ViewBuilder func body(content: Content) -> some View {
-        styled(content)
-            .overlay(alignment: .top) { veil(top: true) }
-            .overlay(alignment: .bottom) { veil(top: false) }
-            .clipped()
-    }
-
-    @ViewBuilder private func styled(_ content: Content) -> some View {
         #if MODERN_GLASS
         if #available(macOS 26, *) {
             content.scrollEdgeEffectStyle(.soft, for: .vertical)
         } else { content }
         #else
         content
+        #endif
+    }
+}
+
+/// Register custom controls as real bars so macOS owns their scroll edge effect.
+struct NativeSafeAreaBar<Bar: View>: ViewModifier {
+    var edge: VerticalEdge
+    @ViewBuilder var bar: Bar
+    @ViewBuilder func body(content: Content) -> some View {
+        #if MODERN_GLASS
+        if #available(macOS 26, *) {
+            content.safeAreaBar(edge: edge, spacing: 0) { bar }
+        } else {
+            content.safeAreaInset(edge: edge, spacing: 0) { bar.background(.bar) }
+        }
+        #else
+        content.safeAreaInset(edge: edge, spacing: 0) { bar.background(.bar) }
         #endif
     }
 }

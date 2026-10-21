@@ -2,6 +2,25 @@ import SwiftUI
 
 extension RootView {
     var connectedPage: some View {
+        List(selection: $store.selectedMountedIDs) {
+            ForEach(store.mountedVolumes) { volume in
+                mountedRow(volume).tag(volume.id)
+                    .modifier(CardSelection(selected: store.selectedMountedIDs.contains(volume.id), radius: 19))
+                    .listRowSeparator(.hidden).listRowBackground(Color.clear)
+            }
+            if store.mountedVolumes.isEmpty {
+                Text(store.refreshingMounted ? "Checking connected drives…" : "No network drives connected")
+                    .foregroundStyle(.secondary).padding(30)
+            }
+        }.listStyle(.inset(alternatesRowBackgrounds: false)).scrollContentBackground(.hidden)
+            .modifier(NativeScrollEdges()).disabled(store.working)
+            .contextMenu(forSelectionType: String.self) { ids in mountedContext(ids) }
+            .modifier(NativeSafeAreaBar(edge: .top) { connectedHeader })
+            .modifier(NativeSafeAreaBar(edge: .bottom) { connectedActions })
+            .padding(24)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: store.selectedMountedIDs.isEmpty)
+    }
+    var connectedHeader: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
                 VStack(alignment: .leading, spacing: 7) {
@@ -15,35 +34,25 @@ extension RootView {
                 Circle().fill(store.mountedError == nil ? Color.green : Color.orange).frame(width: 6, height: 6)
                 Text(store.mountedError ?? "\(store.mountedVolumes.count) connected").font(.system(size: 12)).foregroundStyle(.secondary)
                 Spacer()
-                Button("Select all") { store.selectedMountedIDs = Set(store.mountedVolumes.map(\.id)) }.buttonStyle(.borderless)
-                Button("Deselect all") { store.selectedMountedIDs = [] }.buttonStyle(.borderless)
+                Button("Select all") { store.selectedMountedIDs = Set(store.mountedVolumes.map(\.id)) }.buttonStyle(FramedButtonStyle())
+                Button("Deselect all") { store.selectedMountedIDs = [] }.buttonStyle(FramedButtonStyle())
             }
-            List(selection: $store.selectedMountedIDs) {
-                ForEach(store.mountedVolumes) { volume in
-                    mountedRow(volume).tag(volume.id)
-                        .modifier(CardSelection(selected: store.selectedMountedIDs.contains(volume.id), radius: 19))
-                        .listRowSeparator(.hidden).listRowBackground(Color.clear)
-                }
-                if store.mountedVolumes.isEmpty {
-                    Text(store.refreshingMounted ? "Checking connected drives…" : "No network drives connected")
-                        .foregroundStyle(.secondary).padding(30)
-                }
-            }.listStyle(.inset(alternatesRowBackgrounds: false)).scrollContentBackground(.hidden)
-                .modifier(ScrollBoundaryTreatment(depth: 20)).disabled(store.working)
-                .contextMenu(forSelectionType: String.self) { ids in mountedContext(ids) }
-            if !store.selectedMountedIDs.isEmpty {
-                HStack {
-                    Text("\(store.selectedMountedIDs.count) selected").font(.system(size: 12)).foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Save as group…") { store.groupFromMounted(store.selectedMountedIDs) }.buttonStyle(PillStyle())
-                    Button("Eject selected") {
-                        Task { await store.ejectVolumes(store.mountedVolumes.filter { store.selectedMountedIDs.contains($0.id) }) }
-                    }.buttonStyle(PillStyle()).disabled(store.working)
-                }.modifier(SelectionActionBar())
-            }
-        }.padding(24)
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: store.selectedMountedIDs.isEmpty)
+        }.padding(.bottom, 16)
     }
+
+    @ViewBuilder var connectedActions: some View {
+        if !store.selectedMountedIDs.isEmpty {
+            HStack {
+                Text("\(store.selectedMountedIDs.count) selected").font(.system(size: 12)).foregroundStyle(.secondary)
+                Spacer()
+                Button("Save as group…") { store.groupFromMounted(store.selectedMountedIDs) }.buttonStyle(PillStyle())
+                Button("Eject selected") {
+                    Task { await store.ejectVolumes(store.mountedVolumes.filter { store.selectedMountedIDs.contains($0.id) }) }
+                }.buttonStyle(PillStyle()).disabled(store.working)
+            }.modifier(SelectionActionBar()).padding(.top, 12)
+        }
+    }
+
     func mountedRow(_ volume: MountedVolume) -> some View {
         HStack(spacing: 13) {
             Image(systemName: "externaldrive.fill").font(.system(size: 25)).foregroundStyle(.blue)
@@ -54,12 +63,11 @@ extension RootView {
             }
             Spacer(minLength: 8)
             Button { Task { await store.openMounted(volume) } } label: {
-                Text("Open").padding(.horizontal, 8).padding(.vertical, 7)
-            }.buttonStyle(.borderless).disabled(store.working)
+                Text("Open")
+            }.buttonStyle(FramedButtonStyle()).disabled(store.working)
             Button { Task { await store.ejectMounted(volume) } } label: {
                 Label(store.ejectingVolumeID == volume.id ? "Ejecting…" : "Eject", systemImage: "eject")
-                    .padding(.horizontal, 8).padding(.vertical, 7)
-            }.buttonStyle(.borderless).disabled(store.working || store.loading)
+            }.buttonStyle(FramedButtonStyle()).disabled(store.working || store.loading)
                 .accessibilityLabel("Eject \(volume.name) from \(volume.serverName) at \(volume.mountPoint)")
         }.padding(.horizontal, 16).padding(.vertical, 12).modifier(ContentCard(radius: 19))
     }
@@ -70,7 +78,7 @@ extension RootView {
                 Text("Connected").font(.system(size: 17, weight: .semibold))
                 Text("\(store.mountedVolumes.count)").font(.system(size: 12)).foregroundStyle(.secondary)
                 Spacer()
-                Button("View all") { store.showConnected() }.buttonStyle(.borderless)
+                Button("View all") { store.showConnected() }.buttonStyle(FramedButtonStyle())
             }
             if let warning = store.mountedError {
                 Text(warning).font(.system(size: 11)).foregroundStyle(.orange)
