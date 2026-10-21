@@ -20,7 +20,8 @@ flow and lets Finder manage authentication. **Activity** shows recent results.
 
 - `⌘R`: refresh discovery from Overview.
 - `⌘K`: add a server.
-- The interface follows the system's light or dark appearance.
+- Choose **Appearance → Dark**, **Light**, or **System** at the bottom of the sidebar.
+  The app remembers your choice across launches and applies it to sheets and glass surfaces.
 - macOS 26 uses the system's `NSGlassEffectView` for Liquid Glass surfaces.
   Earlier macOS versions use `NSVisualEffectView` materials.
 - Preferences live in `~/Library/Application Support/MAC-NDMG/shares.json`.

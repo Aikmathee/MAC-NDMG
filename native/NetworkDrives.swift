@@ -47,16 +47,19 @@ struct GlassSurface: NSViewRepresentable {
         effect.layer?.masksToBounds = true
         return effect
     }
-    func updateNSView(_ view: NSView, context: Context) {}
+    func updateNSView(_ view: NSView, context: Context) {
+        view.appearance = NSAppearance(named: context.environment.colorScheme == .dark ? .darkAqua : .aqua)
+    }
 }
 
 struct GlassCard: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
     var radius: CGFloat = 24
     func body(content: Content) -> some View {
         content
             .background(GlassSurface(radius: radius))
             .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous)
-                .strokeBorder(.white.opacity(0.4), lineWidth: 0.7).allowsHitTesting(false))
+                .strokeBorder(.white.opacity(colorScheme == .dark ? 0.16 : 0.4), lineWidth: 0.7).allowsHitTesting(false))
             .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
             .shadow(color: .black.opacity(0.035), radius: 14, y: 5)
     }
@@ -271,6 +274,20 @@ struct Service {
 }
 
 struct RootView: View {
+    @AppStorage("appearance") private var appearance = "system"
+    private var chosenColorScheme: ColorScheme? {
+        appearance == "dark" ? .dark : appearance == "light" ? .light : nil
+    }
+    private var appearanceName: String {
+        appearance == "dark" ? "Dark" : appearance == "light" ? "Light" : "System"
+    }
+    private var appearanceIcon: String {
+        appearance == "dark" ? "moon.fill" : appearance == "light" ? "sun.max.fill" : "circle.lefthalf.filled"
+    }
+    private func applyAppearance() {
+        NSApp.appearance = appearance == "dark" ? NSAppearance(named: .darkAqua)
+            : appearance == "light" ? NSAppearance(named: .aqua) : nil
+    }
     @StateObject private var store = DriveStore()
     var body: some View {
         HStack(spacing: 0) {
@@ -286,6 +303,9 @@ struct RootView: View {
         }
         .frame(minWidth: 920, minHeight: 650)
         .tint(.blue)
+        .preferredColorScheme(chosenColorScheme)
+        .onAppear { applyAppearance() }
+        .onChange(of: appearance) { _ in applyAppearance() }
         .task { await store.start() }
         .sheet(isPresented: $store.showingAdd) { addSheet }
         .sheet(isPresented: $store.showingActivity) { activitySheet }
@@ -340,6 +360,20 @@ struct RootView: View {
             Button { store.showingAdd = true } label: {
                 Label("Add server", systemImage: "plus").frame(maxWidth: .infinity)
             }.buttonStyle(PillStyle()).disabled(store.working || store.loading).keyboardShortcut("k", modifiers: .command)
+            Menu {
+                Picker("Appearance", selection: $appearance) {
+                    Label("System", systemImage: "circle.lefthalf.filled").tag("system")
+                    Label("Light", systemImage: "sun.max").tag("light")
+                    Label("Dark", systemImage: "moon").tag("dark")
+                }.pickerStyle(.inline)
+            } label: {
+                HStack {
+                    Label("Appearance", systemImage: appearanceIcon)
+                    Spacer()
+                    Text(appearanceName).foregroundStyle(.secondary)
+                }.font(.system(size: 11)).padding(.horizontal, 4)
+            }.menuStyle(.borderlessButton).fixedSize(horizontal: false, vertical: true)
+                .accessibilityLabel("Appearance, \(appearanceName)")
         }.padding(.horizontal, 16).padding(.bottom, 18)
             .background(GlassSurface(radius: 0, sidebar: true))
     }
