@@ -1,0 +1,13 @@
+# macOS Network Drive Manager - Dependencies
+# Core app uses only Python stdlib (tkinter), so no hard requirements.
+# The packages below are optional, for building / scanning.
+
+# Build tools (choose one)
+pyinstaller>=6.0         # Recommended for .app bundling
+# py2app>=0.28           # Alternative macOS-native bundler
+
+# Optional: YAML config support
+# pyyaml>=6.0
+
+# Optional: LAN scanning (stdlib socket is used by default)
+# No extra packages needed — uses socket + subprocess
