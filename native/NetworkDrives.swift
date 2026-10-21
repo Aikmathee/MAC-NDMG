@@ -15,6 +15,8 @@ struct Server: Codable, Identifiable, Equatable {
     var address: String
     var saved: Bool
     var drives: [Drive]
+    var ip: String? = nil
+    var discovered: Bool? = nil
     var symbol: String { name.localizedCaseInsensitiveContains("nas") || name.localizedCaseInsensitiveContains("storage") ? "externaldrive.connected.to.line.below" : "desktopcomputer" }
 }
 
@@ -40,7 +42,7 @@ struct MountedVolume: Decodable, Identifiable, Equatable {
         return key
     }
     func matches(_ server: Server, share name: String) -> Bool {
-        filesystem == "smbfs" && share == name && !Set([hostKey(server.address), hostKey(server.name)]).isDisjoint(with: [hostKey(address), hostKey(serverName)])
+        filesystem == "smbfs" && share == name && !Set([hostKey(server.address), hostKey(server.name), hostKey(server.ip ?? "")]).isDisjoint(with: [hostKey(address), hostKey(serverName)])
     }
 }
 
@@ -52,12 +54,18 @@ struct SavedDrive: Decodable, Identifiable, Equatable {
     var share: String
     var url: String?
     var connectionProtocol: String?
+    var mountedIDs: [String]?
+    var usesIPAddress: Bool {
+        address.contains(":") || (address.split(separator: ".").count == 4 && address.split(separator: ".").allSatisfy { UInt8($0) != nil })
+    }
     enum CodingKeys: String, CodingKey {
         case id, name, address, share, url
         case connectionProtocol = "protocol"
+        case mountedIDs = "mounted_ids"
         case serverName = "server_name"
     }
     func matches(_ volume: MountedVolume) -> Bool {
+        if mountedIDs?.contains(volume.id) == true { return true }
         if connectionProtocol == "webdav" { return volume.filesystem == "webdav" && volume.url == url }
         return volume.filesystem == "smbfs" && volume.share == share && volume.hostKey(volume.address) == volume.hostKey(address)
     }
@@ -230,7 +238,11 @@ struct AuthenticatedServer {
     }
     func groupFromMounted(_ ids: Set<String>) {
         let volumes = mountedVolumes.filter { ids.contains($0.id) }
-        groupFromSaved(rememberedDrives.filter { drive in volumes.contains { drive.matches($0) } })
+        let preferred = Set(volumes.compactMap { volume -> String? in
+            let matches = rememberedDrives.filter { $0.matches(volume) }
+            return (matches.first { !$0.usesIPAddress } ?? matches.first)?.id
+        })
+        groupFromSaved(rememberedDrives.filter { preferred.contains($0.id) })
     }
     func ejectVolumes(_ volumes: [MountedVolume]) async {
         guard !working && !loading && !volumes.isEmpty else { return }
@@ -541,8 +553,13 @@ struct AuthenticatedServer {
     }
     func merge(_ incoming: [Server]) {
         for server in incoming {
-            if let index = servers.firstIndex(where: { $0.address == server.address }) {
+            if let index = servers.firstIndex(where: { CredentialVault.key($0.address) == CredentialVault.key(server.address) }) {
                 if server.saved { servers[index].saved = true }
+                if server.discovered == true {
+                    servers[index].ip = server.ip
+                    servers[index].discovered = true
+                    if !servers[index].saved { servers[index].name = server.name }
+                }
                 if servers[index].drives.isEmpty { servers[index].drives = server.drives }
             } else { servers.append(server) }
         }
@@ -555,8 +572,13 @@ struct AuthenticatedServer {
         do {
             let response = try await Service.request(["action": "scan"])
             if response.ok {
-                merge(response.hosts ?? [])
-                note("\(response.hosts?.count ?? 0) servers found")
+                let hosts = response.hosts ?? []
+                let found = Set(hosts.map(\.id))
+                servers.removeAll { $0.discovered == true && !$0.saved && !found.contains($0.id) }
+                merge(hosts)
+                selectedServerIDs.formIntersection(Set(servers.map(\.id)))
+                if let id = selectedID, !servers.contains(where: { $0.id == id }) { selectedID = nil }
+                note("\(hosts.count) servers found")
             } else { report(response.error ?? "Could not search the network.") }
         } catch { report(error.localizedDescription) }
     }

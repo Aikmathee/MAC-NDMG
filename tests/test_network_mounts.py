@@ -16,6 +16,9 @@ nas.local:/exports/Archive on /Volumes/Archive (nfs, nodev)
 
 class NetworkMountTests(unittest.TestCase):
     def setUp(self):
+        dns = patch('src.services.host_identity.current_addresses', return_value=())
+        dns.start()
+        self.addCleanup(dns.stop)
         self.volumes = network_mounts.parse_mounts(SAMPLE)
         self.a = next(v for v in self.volumes if v.address == 'nas-a.local')
         self.b = next(v for v in self.volumes if v.address == 'nas-b.local')

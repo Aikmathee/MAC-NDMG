@@ -6,6 +6,7 @@ import hashlib
 import re
 import subprocess
 from urllib.parse import unquote, urlsplit
+from src.services import host_identity
 
 NETWORK_FILESYSTEMS = {"smbfs", "afpfs", "nfs", "webdav"}
 
@@ -84,7 +85,8 @@ def find_mount(host: str, share: str, host_name: str = "") -> MountedVolume | No
     keys = {_host_key(value) for value in (host, host_name) if value}
     return next((volume for volume in list_network_mounts()
                  if volume.filesystem == "smbfs" and volume.share == share
-                 and keys.intersection({_host_key(volume.address), _host_key(volume.server_name)})), None)
+                 and (keys.intersection({_host_key(volume.address), _host_key(volume.server_name)})
+                      or host_identity.matches_ip(host, volume.address))), None)
 
 
 def eject_volume(volume_id: str) -> tuple[bool, str]:

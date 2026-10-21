@@ -18,6 +18,9 @@ server:/exports/Archive on /Volumes/Archive (nfs, nodev)
 
 class ConnectionGroupsTests(unittest.TestCase):
     def setUp(self):
+        dns = patch('src.services.host_identity.current_addresses', return_value=())
+        dns.start()
+        self.addCleanup(dns.stop)
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.path = Path(self.temporary.name) / 'connections.json'

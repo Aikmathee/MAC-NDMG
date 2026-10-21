@@ -22,10 +22,12 @@ class NativeBridgeTests(unittest.TestCase):
             loaded = dispatch({'action': 'saved', 'config': config})
             self.assertEqual(loaded['hosts'][0]['drives'][0]['name'], 'Media')
 
-    def test_scan_response_uses_resolved_address(self):
+    def test_scan_response_keeps_hostname_and_current_ip_separate(self):
         with patch('src.native_bridge.lan_scanner.scan_all_network_hosts', return_value=[DiscoveredHost('Studio', 'studio.local', '192.168.1.10')]):
             result = dispatch({'action': 'scan'})
-            self.assertEqual(result['hosts'][0]['address'], '192.168.1.10')
+            self.assertEqual(result['hosts'][0]['address'], 'studio.local')
+            self.assertEqual(result['hosts'][0]['id'], 'studio.local')
+            self.assertEqual(result['hosts'][0]['ip'], '192.168.1.10')
             self.assertFalse(result['hosts'][0]['saved'])
 
     def test_share_name_cannot_escape_volumes(self):

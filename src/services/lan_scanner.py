@@ -20,6 +20,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import List, Optional
 from urllib.parse import quote as url_quote
+from src.services import host_identity
 
 log = logging.getLogger(__name__)
 
@@ -180,7 +181,9 @@ def scan_all_network_hosts() -> List[DiscoveredHost]:
             if ip not in known_ips:
                 # Try reverse lookup
                 try:
-                    hostname = socket.gethostbyaddr(ip)[0]
+                    hostname = socket.gethostbyaddr(ip)[0].rstrip('.')
+                    if ip not in host_identity.current_addresses(hostname):
+                        hostname = ip
                 except Exception:
                     hostname = ip
                 bonjour_hosts.append(

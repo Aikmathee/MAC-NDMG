@@ -37,6 +37,24 @@ use native macOS selection. **Command-click** adds/removes an item;
 - **Save selection as group** creates a reusable set from the current selection.
 - Batch eject continues past busy drives, reports failures, and never forces an unmount.
 
+### Hostnames and changing LAN addresses
+
+Discovered servers use their advertised Bonjour/DNS hostname (for example,
+`editing-mac.local`) as the SMB destination and saved identity. The current IP
+is discovery metadata, not a permanent destination. macOS resolves the hostname
+again when connecting, so DHCP changes do not require editing a hostname-based
+server or group. Explicit DNS and VPN/MagicDNS names are preserved as entered.
+If discovery supplies only an IP, the app keeps that IP; it never invents a
+hostname from a display name or silently falls back to yesterday's IP.
+
+Existing Finder connections keep their original endpoint until you eject and
+reconnect them. Old saved servers/groups recorded only by IP are not silently
+migrated: a reused IP could now identify another computer. Connect the server by
+its hostname, then save that destination and update the group's members once.
+Devices without working Bonjour/DNS still need a valid IP or a configured DNS
+name. `.local` discovery usually requires the same LAN; across a VPN, use its
+working DNS name rather than assuming multicast Bonjour is forwarded.
+
 ### Remembered accounts
 
 **Load drives**, **Connect all**, and **Change account** use a sign-in sheet.

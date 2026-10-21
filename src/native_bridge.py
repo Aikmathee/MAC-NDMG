@@ -4,8 +4,9 @@ from __future__ import annotations
 import json
 import logging
 import sys
+from urllib.parse import quote
 from src.models.share_item import HostEntry, ShareItem
-from src.services import config_loader, lan_scanner, mounter, network_mounts, connection_groups
+from src.services import config_loader, lan_scanner, mounter, network_mounts, connection_groups, host_identity
 
 
 def drive_dict(share):
@@ -17,6 +18,13 @@ def drive_dict(share):
 def host_dict(host):
     return {"id": host.ip_or_hostname, "name": host.name, "address": host.ip_or_hostname,
             "saved": True, "drives": [drive_dict(s) for s in host.shares]}
+
+
+def library_dict(state, volumes=()):
+    # Live matching metadata is never written to history or used as a destination.
+    return {"remembered": [dict(drive, mounted_ids=[v.id for v in volumes
+                if connection_groups.is_connected(drive, [v])]) for drive in state["drives"]],
+            "groups": state["groups"]}
 
 
 def dispatch(request):
@@ -35,10 +43,11 @@ def dispatch(request):
         elif action == "reconnect":
             status, volumes = connection_groups.reconnect(request.get("drive_id"), request.get("username", ""), request.get("password", ""))
         else:
-            state = connection_groups.remember_mounts(network_mounts.list_network_mounts())
+            volumes = network_mounts.list_network_mounts()
+            state = connection_groups.remember_mounts(volumes)
         result = {"ok": True}
         if state is not None:
-            result.update({"remembered": state["drives"], "groups": state["groups"]})
+            result.update(library_dict(state, volumes or ()))
         if status is not None:
             result["connection_state"] = status
             result["volumes"] = [v.to_dict() for v in volumes]
@@ -59,7 +68,7 @@ def dispatch(request):
         result = {"ok": ok, "error": error, "volumes": [v.to_dict() for v in volumes]}
         try:
             state = connection_groups.remember_mounts(volumes)
-            result.update({"remembered": state["drives"], "groups": state["groups"]})
+            result.update(library_dict(state, volumes or ()))
         except (OSError, ValueError, KeyError, TypeError):
             # A damaged history file must not hide live drives or disable eject.
             result["storage_error"] = "Saved connections could not be read. Your connected drives are still available."
@@ -69,8 +78,9 @@ def dispatch(request):
     if action == "scan":
         hosts = lan_scanner.scan_all_network_hosts()
         return {"ok": True, "hosts": [
-            {"id": h.ip or h.host, "name": h.name, "address": h.ip or h.host,
-             "saved": False, "drives": []} for h in hosts]}
+            {"id": address.lower(), "name": h.name, "address": address,
+             "ip": h.ip or None, "discovered": True, "saved": False, "drives": []}
+            for h in hosts if (address := host_identity.connection_address(h))]}
     address = request.get("address", "")
     if not isinstance(address, str) or not address or len(address) > 253 or any(c in address for c in '/@?#\\\n\r\t '):
         raise ValueError("Enter a valid server address.")
@@ -94,6 +104,11 @@ def dispatch(request):
     share = ShareItem(name, address, request.get("name") or address)
     if action == "mount":
         ok = mounter.mount_share(share, username, password)
+        if ok and host_identity.hostname(address):
+            try:
+                connection_groups.save_endpoint(f"smb://{address}/{quote(name, safe='')}")
+            except (OSError, ValueError):
+                logging.warning("The drive connected, but its hostname could not be saved.")
     elif action == "eject":
         ok = mounter.unmount_share(share)
     elif action == "reveal":

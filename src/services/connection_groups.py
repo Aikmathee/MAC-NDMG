@@ -13,7 +13,7 @@ import time
 from urllib.parse import quote, urlsplit, unquote
 import uuid
 
-from src.services import config_loader, network_mounts, remote_endpoints
+from src.services import config_loader, network_mounts, remote_endpoints, host_identity
 
 
 def state_path() -> Path:
@@ -91,6 +91,10 @@ def remember_mounts(volumes):
         for volume in volumes:
             target = target_for_volume(volume)
             if target and target['id'] not in ids:
+                if (volume.filesystem == 'smbfs' and host_identity.is_ip(volume.address)
+                        and any(not host_identity.is_ip(d['address']) and is_connected(d, [volume])
+                                for d in state['drives'])):
+                    continue  # A known hostname remains the saved destination.
                 state['drives'].append(target)
                 ids.add(target['id'])
                 changed = True
@@ -132,7 +136,8 @@ def is_connected(drive, volumes):
     if drive.get('protocol') == 'webdav':
         return any(v.filesystem == 'webdav' and v.url == drive.get('url') for v in volumes)
     return any(volume.filesystem == 'smbfs' and volume.share == drive['share']
-               and network_mounts._host_key(volume.address) == network_mounts._host_key(drive['address'])
+               and (network_mounts._host_key(volume.address) == network_mounts._host_key(drive['address'])
+                    or host_identity.matches_ip(drive['address'], volume.address))
                for volume in volumes)
 
 
