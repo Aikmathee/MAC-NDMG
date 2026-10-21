@@ -689,6 +689,7 @@ struct RootView: View {
     @StateObject var store = DriveStore()
     @Environment(\.accessibilityReduceMotion) var reduceMotion
     @State var columnVisibility: NavigationSplitViewVisibility = .all
+    @State var expandedGroupIDs = Set<String>()
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebar

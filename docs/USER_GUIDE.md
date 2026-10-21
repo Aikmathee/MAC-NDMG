@@ -77,6 +77,10 @@ connections. Its JSON file stores server/share names, never usernames or passwor
 2. Choose **Save group**. Drives may come from different servers.
 3. Choose **Connect group** when you want the set connected.
 
+Group cards show connection status and server count, with Eject and Connect
+beside each other. Click the drive count to expand or collapse all members,
+arranged by server. Cards start collapsed to keep the list compact.
+
 Use the group's options menu to edit its name/members or delete the group.
 Deleting a group does not eject its drives. **Select connected** in the editor
 selects the SMB drives currently connected to the Mac.

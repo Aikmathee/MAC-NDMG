@@ -6,7 +6,7 @@ extension RootView {
             HStack {
                 VStack(alignment: .leading, spacing: 7) {
                     Text("Groups & saved drives").font(.system(size: 26, weight: .bold, design: .rounded))
-                    Text("⌘-click to combine groups or drives · Control-click for actions")
+                    Text("⌘-click to select multiple · Control-click for actions")
                         .font(.system(size: 12)).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -72,41 +72,87 @@ extension RootView {
     func groupCard(_ group: DriveGroup) -> some View {
         let drives = store.drivesForGroup(group)
         let connected = drives.filter { store.isConnected($0) }.count
-        return VStack(alignment: .leading, spacing: 17) {
-            HStack(spacing: 12) {
-                Image(systemName: "square.stack.3d.up.fill").font(.system(size: 23)).foregroundStyle(.blue)
-                VStack(alignment: .leading, spacing: 5) {
+        let serverCount = Set(drives.map { $0.address.lowercased() }).count
+        let expanded = expandedGroupIDs.contains(group.id)
+        let complete = !drives.isEmpty && connected == drives.count
+        return VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 13) {
+                Image(systemName: "square.stack.3d.up.fill")
+                    .font(.system(size: 22, weight: .medium)).foregroundStyle(.blue)
+                    .frame(width: 44, height: 44)
+                    .background(Color.blue.opacity(0.10), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                VStack(alignment: .leading, spacing: 6) {
                     Text(group.name).font(.system(size: 17, weight: .semibold)).lineLimit(2)
-                    Text("\(connected) of \(drives.count) connected").font(.system(size: 12)).foregroundStyle(.secondary)
-                }
-                Spacer()
+                    HStack(spacing: 6) {
+                        Circle().fill(complete ? Color.green : connected > 0 ? Color.blue : Color.secondary)
+                            .frame(width: 5, height: 5).accessibilityHidden(true)
+                        Text("\(connected) of \(drives.count) connected · \(serverCount) \(serverCount == 1 ? "server" : "servers")")
+                            .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading)
                 Menu {
-                    Button("Connect group") { Task { await store.connectSaved(store.drivesForGroup(group), label: group.name) } }
-                    Button("Eject group") { Task { await store.ejectVolumes(store.volumesForSaved(store.drivesForGroup(group))) } }
-                        .disabled(store.volumesForSaved(store.drivesForGroup(group)).isEmpty)
+                    Button("Connect group") { Task { await store.connectSaved(drives, label: group.name) } }
+                        .disabled(drives.isEmpty || complete)
+                    Button("Eject group") { Task { await store.ejectVolumes(store.volumesForSaved(drives)) } }
+                        .disabled(connected == 0)
                     Divider()
-                    Button("Edit group") { store.editGroup(group) }
+                    Button("Edit group…") { store.editGroup(group) }
                     Button("Delete group", role: .destructive) { store.pendingDeleteGroup = group }
-                } label: { Image(systemName: "ellipsis").padding(8) }
+                } label: { Image(systemName: "ellipsis").frame(width: 28, height: 28) }
                     .menuStyle(.borderlessButton).fixedSize().disabled(store.working)
                     .accessibilityLabel("Options for \(group.name)")
             }
-            Text(drives.prefix(4).map { "\($0.name) · \($0.serverName)" }.joined(separator: "\n") + (drives.count > 4 ? "\n+\(drives.count - 4) more" : ""))
-                .font(.system(size: 12)).foregroundStyle(.secondary).lineSpacing(5)
-            HStack {
-                if connected > 0 {
-                    Button("Eject group") { Task { await store.ejectVolumes(store.volumesForSaved(drives)) } }
-                        .buttonStyle(PillStyle()).disabled(store.working)
-                }
-                Spacer()
+            HStack(spacing: 10) {
                 Button {
-                    Task { await store.connectSaved(drives, label: group.name) }
+                    if expanded { expandedGroupIDs.remove(group.id) }
+                    else { expandedGroupIDs.insert(group.id) }
                 } label: {
-                    Label(connected == drives.count ? "Connected" : "Connect group", systemImage: connected == drives.count ? "checkmark" : "link")
-                }.buttonStyle(PillStyle(primary: connected != drives.count))
-                    .disabled(drives.isEmpty || connected == drives.count || store.working || store.loading)
+                    HStack(spacing: 6) {
+                        Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 9, weight: .semibold)).frame(width: 10)
+                        Text("\(drives.count) \(drives.count == 1 ? "drive" : "drives")")
+                            .font(.system(size: 12, weight: .medium))
+                    }.foregroundStyle(.secondary).padding(.vertical, 8).contentShape(Rectangle())
+                }.buttonStyle(.plain)
+                    .accessibilityLabel("\(expanded ? "Hide" : "Show") drives in \(group.name)")
+                    .accessibilityValue(expanded ? "Expanded" : "Collapsed")
+                Spacer(minLength: 8)
+                Button { Task { await store.ejectVolumes(store.volumesForSaved(drives)) } } label: {
+                    Label("Eject", systemImage: "eject")
+                }.buttonStyle(PillStyle()).disabled(connected == 0 || store.working || store.loading)
+                    .accessibilityLabel("Eject group \(group.name)")
+                Button { Task { await store.connectSaved(drives, label: group.name) } } label: {
+                    Label(complete ? "Connected" : "Connect", systemImage: complete ? "checkmark" : "link")
+                }.buttonStyle(PillStyle(primary: !complete))
+                    .disabled(drives.isEmpty || complete || store.working || store.loading)
+                    .accessibilityLabel(complete ? "All drives in \(group.name) are connected" : "Connect group \(group.name)")
             }
-        }.padding(22).modifier(ContentCard())
+            if expanded {
+                Divider().opacity(0.45)
+                groupMembers(drives)
+                    .transition(.opacity)
+            }
+        }.padding(20).modifier(ContentCard())
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: expanded)
+    }
+
+    func groupMembers(_ drives: [SavedDrive]) -> some View {
+        let members = Dictionary(grouping: drives, by: { $0.address.lowercased() })
+        let addresses = members.keys.sorted { lhs, rhs in
+            (members[lhs]?.first?.serverName ?? lhs).localizedStandardCompare(members[rhs]?.first?.serverName ?? rhs) == .orderedAscending
+        }
+        return VStack(alignment: .leading, spacing: 14) {
+            ForEach(addresses, id: \.self) { address in
+                let items = (members[address] ?? []).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+                VStack(alignment: .leading, spacing: 5) {
+                    Label(items.first?.serverName ?? address, systemImage: "desktopcomputer")
+                        .font(.system(size: 12, weight: .medium))
+                    Text(items.map(\.name).joined(separator: " · "))
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }.padding(.vertical, 2)
     }
 
     var groupEditor: some View {
