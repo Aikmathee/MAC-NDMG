@@ -10,10 +10,10 @@ from pathlib import Path
 import subprocess
 import tempfile
 import time
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit, unquote
 import uuid
 
-from src.services import config_loader, network_mounts
+from src.services import config_loader, network_mounts, remote_endpoints
 
 
 def state_path() -> Path:
@@ -53,11 +53,35 @@ def _write(state):
 
 
 def target_for_volume(volume):
+    if volume.filesystem == 'webdav' and volume.url:
+        return endpoint_target(volume.url, volume.name)
     if volume.filesystem != 'smbfs':
         return None
     key = f'smbfs\0{network_mounts._host_key(volume.address)}\0{volume.share}'
     return {'id': hashlib.sha256(key.encode()).hexdigest(), 'name': volume.share,
             'address': volume.address, 'server_name': volume.server_name, 'share': volume.share}
+
+
+def endpoint_target(url, name=""):
+    url = remote_endpoints.normalize_url(url)
+    parts = urlsplit(url)
+    protocol = 'smbfs' if parts.scheme == 'smb' else 'webdav'
+    if protocol == 'smbfs' and parts.port is None:
+        key = f'smbfs\0{network_mounts._host_key(parts.hostname)}\0{unquote(parts.path).strip("/")}'
+    else:
+        key = f'{protocol}\0{url}'
+    return {'id': hashlib.sha256(key.encode()).hexdigest(), 'name': name.strip()[:80] or unquote(parts.path).strip('/') or parts.hostname,
+            'address': parts.hostname, 'server_name': parts.hostname,
+            'share': unquote(parts.path).strip('/') or '/', 'url': url, 'protocol': protocol}
+
+
+def save_endpoint(url, name=""):
+    if not isinstance(name, str): raise ValueError('Enter a connection name.')
+    target = endpoint_target(url, name)
+    with _locked() as state:
+        state['drives'] = [d for d in state['drives'] if d['id'] != target['id']] + [target]
+        _write(state)
+        return state
 
 
 def remember_mounts(volumes):
@@ -105,6 +129,8 @@ def delete_group(group_id):
 
 
 def is_connected(drive, volumes):
+    if drive.get('protocol') == 'webdav':
+        return any(v.filesystem == 'webdav' and v.url == drive.get('url') for v in volumes)
     return any(volume.filesystem == 'smbfs' and volume.share == drive['share']
                and network_mounts._host_key(volume.address) == network_mounts._host_key(drive['address'])
                for volume in volumes)
@@ -119,11 +145,18 @@ def reconnect(drive_id, username="", password=""):
     volumes = network_mounts.list_network_mounts()
     if is_connected(drive, volumes):
         return 'connected', volumes
+    if drive.get('protocol') == 'webdav':
+        remote_endpoints.mount_webdav(drive['url'])
+        volumes = network_mounts.list_network_mounts()
+        return ('connected' if is_connected(drive, volumes) else 'waiting'), volumes
     address = drive['address']
     if ':' in address and not address.startswith('['):
         address = f'[{address}]'
     credentials = f"{quote(username, safe='')}:{quote(password, safe='')}@" if username else ""
     uri = f"smb://{credentials}{quote(address, safe='[]:.')}/{quote(drive['share'], safe='')}"
+    if drive.get('url'):
+        parts = urlsplit(remote_endpoints.normalize_url(drive['url']))
+        uri = f"smb://{credentials}{parts.netloc}{parts.path}"
     result = subprocess.run(['/usr/bin/open', uri], capture_output=True, text=True, timeout=10)
     if result.returncode:
         raise RuntimeError('Finder could not open this drive. Check that the server is available.')

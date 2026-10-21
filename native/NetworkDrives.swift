@@ -26,8 +26,9 @@ struct MountedVolume: Decodable, Identifiable, Equatable {
     var share: String
     var mountPoint: String
     var filesystem: String
+    var url: String?
     enum CodingKeys: String, CodingKey {
-        case id, name, address, share, filesystem
+        case id, name, address, share, filesystem, url
         case serverName = "server_name"
         case mountPoint = "mount_point"
     }
@@ -49,12 +50,16 @@ struct SavedDrive: Decodable, Identifiable, Equatable {
     var address: String
     var serverName: String
     var share: String
+    var url: String?
+    var connectionProtocol: String?
     enum CodingKeys: String, CodingKey {
-        case id, name, address, share
+        case id, name, address, share, url
+        case connectionProtocol = "protocol"
         case serverName = "server_name"
     }
     func matches(_ volume: MountedVolume) -> Bool {
-        volume.filesystem == "smbfs" && volume.share == share && volume.hostKey(volume.address) == volume.hostKey(address)
+        if connectionProtocol == "webdav" { return volume.filesystem == "webdav" && volume.url == url }
+        return volume.filesystem == "smbfs" && volume.share == share && volume.hostKey(volume.address) == volume.hostKey(address)
     }
 }
 
@@ -522,7 +527,7 @@ struct AuthenticatedServer {
             note("\(label): \(processed + 1) of \(pending.count)…")
             do {
                 var payload: [String: Any] = ["action": "reconnect", "drive_id": drive.id]
-                if let credentials = try? await Task.detached(operation: { try CredentialVault.load(drive.address) }).value {
+                if drive.connectionProtocol != "webdav", let credentials = try? await Task.detached(operation: { try CredentialVault.load(drive.address) }).value {
                     payload["username"] = credentials.username; payload["password"] = credentials.password
                 }
                 let response = try await Service.request(payload)
@@ -631,9 +636,22 @@ struct AuthenticatedServer {
     }
     var validNewAddress: Bool {
         let address = newAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        if address.contains("://") { return URLComponents(string: address)?.host != nil }
         return !address.isEmpty && address.count <= 253 && address.rangeOfCharacter(from: CharacterSet(charactersIn: "/@?#\\ \n\r\t")) == nil
     }
-    func add() {
+    func add() async {
+        if newAddress.contains("://") {
+            do {
+                let response = try await Service.request(["action": "save_endpoint", "url": newAddress.trimmingCharacters(in: .whitespacesAndNewlines), "name": newName])
+                guard response.ok else { report(response.error ?? "Could not add drive."); return }
+                applyLibrary(response)
+                showingAdd = false
+                newName = ""; newAddress = ""
+                showGroups()
+                note("Drive saved · select Connect when your VPN is ready")
+            } catch { report(error.localizedDescription) }
+            return
+        }
         let address = newAddress.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !address.isEmpty, address.count <= 253,
               address.rangeOfCharacter(from: CharacterSet(charactersIn: "/@?#\\ \n\r\t")) == nil else {
@@ -1336,16 +1354,20 @@ struct RootView: View {
         VStack(alignment: .leading, spacing: 20) {
             Image(systemName: "plus.circle.fill").font(.system(size: 32)).foregroundStyle(.blue)
             Text("Add a server").font(.system(size: 24, weight: .bold, design: .rounded))
-            Text("Enter its IP address or hostname.").foregroundStyle(.secondary)
-            field("Address") { TextField("192.168.1.100 or studio.local", text: $store.newAddress) }
+            Text("Add a LAN server, VPN destination or WebDAV drive.").foregroundStyle(.secondary)
+            field("Address") { TextField("nas.tailnet.ts.net or smb://server/Share", text: $store.newAddress) }
             field("Name (optional)") { TextField("Studio NAS", text: $store.newName) }
             HStack {
                 Button("Cancel") { store.showingAdd = false }.keyboardShortcut(.cancelAction).buttonStyle(PillStyle())
                 Spacer()
-                Button("Add server") { store.add() }.keyboardShortcut(.defaultAction).buttonStyle(PillStyle(primary: true))
+                Button("Add") { Task { await store.add() } }.keyboardShortcut(.defaultAction).buttonStyle(PillStyle(primary: true))
                     .disabled(!store.validNewAddress)
             }
-        }.padding(32).frame(width: 380)
+            Text("SMB: smb://nas/Share\nWebDAV: https://cloud.example.com/dav/\nConnect Tailscale or your VPN first. Remote servers do not appear in LAN scans.")
+                .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+            Text("WebDAV uses the macOS sign-in window. FTP and SFTP need a separate client.")
+                .font(.caption).foregroundStyle(.secondary)
+        }.padding(32).frame(width: 460)
     }
 
     var activitySheet: some View {

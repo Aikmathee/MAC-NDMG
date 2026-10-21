@@ -22,11 +22,13 @@ def host_dict(host):
 def dispatch(request):
     action = request.get("action")
     config = request.get("config")
-    if action in ("connections", "save_group", "delete_group", "reconnect"):
+    if action in ("connections", "save_group", "delete_group", "reconnect", "save_endpoint"):
         state = None
         status = None
         volumes = None
-        if action == "save_group":
+        if action == "save_endpoint":
+            state = connection_groups.save_endpoint(request.get("url"), request.get("name", ""))
+        elif action == "save_group":
             state = connection_groups.save_group(request.get("name"), request.get("drive_ids"), request.get("group_id"))
         elif action == "delete_group":
             state = connection_groups.delete_group(request.get("group_id"))

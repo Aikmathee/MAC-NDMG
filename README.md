@@ -137,3 +137,20 @@ A real server account is required to validate authenticated mounts end to end.
 ## License
 
 Internal use only. Not for redistribution.
+
+
+### Remote drives: Tailscale, VPN and WebDAV
+
+Use **Add server** with a hostname or IP to browse SMB shares, including a Tailscale `100.x.y.z` address or MagicDNS hostname. Connect your VPN first; LAN scans do not discover remote machines. The VPN must provide a route to the server and permit SMB access. The app does not install or manage VPN connections.
+
+To save a particular drive directly, enter a URL:
+
+- `smb://nas.example.ts.net/Projects` — SMB over Tailscale or another VPN (standard port 445).
+- `https://cloud.example.com:8443/remote.php/dav/files/account/` — an actual WebDAV endpoint, such as the URL supplied by your NAS or Nextcloud. An ordinary website URL is not a WebDAV drive.
+- `http://server/dav/` — WebDAV over a trusted VPN; use HTTPS for Internet access.
+
+Saved destinations appear in **Groups** alongside previously connected drives, can be selected together, and support existing Connect and Eject group actions. Saving a URL does not initiate a connection. WebDAV uses macOS NetFS and its system sign-in window, including system Keychain handling. Embedded passwords, query strings and fragments are rejected and never saved. SMB continues to use the app's saved account when available. Live WebDAV matching preserves protocol, port and case-sensitive path; successful opening alone is never reported as a verified connection.
+
+DNS supplies an address, not a file-sharing service. Use SMB over a VPN rather than exposing port 445 publicly. FTP, FTPS and SFTP are not currently mounted by this app; use a dedicated client or expose a supported SMB/WebDAV service through your VPN. No VPN subscription or server setup is included in the app.
+
+References: [Tailscale remote file servers](https://tailscale.com/docs/use-cases/personal-or-at-home-use/access-nas-media-file-servers), [MagicDNS](https://tailscale.com/docs/features/magicdns), [Apple WebDAV connections](https://support.apple.com/en-hk/guide/mac-help/mchlp1546/mac).

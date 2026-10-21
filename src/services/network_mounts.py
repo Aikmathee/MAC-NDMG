@@ -23,6 +23,7 @@ class MountedVolume:
     share: str
     mount_point: str
     filesystem: str
+    url: str = ""
 
     def to_dict(self):
         return asdict(self)
@@ -36,7 +37,7 @@ def parse_mounts(output: str) -> list[MountedVolume]:
             continue
         source, mount_point, filesystem = match.groups()
         mount_point = _unescape(mount_point)
-        address, share = "", ""
+        address, share, endpoint = "", "", ""
         if filesystem == "nfs":
             nfs = re.match(r"^(\[[^\]]+\]|[^:]+):(/.*)$", source)
             if nfs:
@@ -47,6 +48,12 @@ def parse_mounts(output: str) -> list[MountedVolume]:
                 parts = urlsplit(uri)
                 address = unquote(parts.hostname or "")
                 share = unquote(parts.path).strip("/")
+                if filesystem == "webdav":
+                    from src.services.remote_endpoints import normalize_url
+                    authority = f"[{address}]" if ":" in address else address
+                    if parts.port: authority += f":{parts.port}"
+                    endpoint = normalize_url(f"{parts.scheme}://{authority}{parts.path}")
+                    share = share or "/"
             except ValueError:
                 continue
         if not address or not share:
@@ -54,7 +61,7 @@ def parse_mounts(output: str) -> list[MountedVolume]:
         display = re.sub(r"\._(?:smb|afpovertcp)\._tcp\.local\.?$", "", address, flags=re.I)
         identity = hashlib.sha256(f"{filesystem}\0{source}\0{mount_point}".encode()).hexdigest()
         volumes.append(MountedVolume(identity, mount_point.rsplit("/", 1)[-1], address,
-                                     display, share, mount_point, filesystem))
+                                     display, share, mount_point, filesystem, endpoint))
     return sorted(volumes, key=lambda v: (v.server_name.casefold(), v.name.casefold(), v.mount_point))
 
 
