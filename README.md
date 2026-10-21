@@ -9,10 +9,19 @@ handles discovery, authentication, mounting, and saved servers.
 Requires **macOS 13 or newer**. The distributed app includes Python.
 
 1. Unzip `Network-Drive-Manager-macOS.zip` and move the app into Applications.
-2. The app opens to **Overview** and searches the local network automatically.
+2. The app opens to **Overview**, shows connected drives, and searches the local network automatically.
 3. Choose a server card, enter its username and password, and choose **Load drives**.
 4. Select the drives you want and choose **Connect**.
 5. Connected drives offer **Open**; select them and choose **Eject** to disconnect.
+
+**Connected** in the sidebar lists network drives already mounted on this Mac,
+including connections made in Finder before opening the app. Each row shows the
+server and actual mount location, with **Open** and **Eject** actions. Overview
+shows a short preview with **View all**. The list refreshes every three seconds,
+when the app becomes active, and after an operation. Eject uses normal macOS
+unmounting; if a drive is busy, its error is shown and the app does not force it.
+Local disks are not included. Duplicate drive names and multiple mounts of the
+same share are tracked separately by their real mounted source and path.
 
 **Add server** accepts an IP address or hostname. **Save** keeps the current
 server and drive names for next time. **Use Finder** opens the macOS connection
@@ -69,7 +78,8 @@ python3 -m src.main --config config/shares.json
 and services remain in `src/models` and `src/services`.
 
 Tests cover persistence, clean-install behavior, SMB URL encoding, share names
-with spaces, service request validation, and the native service response format.
+with spaces, service request validation, the native service response format, network mount identity, duplicate names,
+actual mount paths, and safe eject success/failure behavior.
 A real server account is required to validate authenticated mounts end to end.
 
 `index.html` is a separate informational website, not the app's control surface.

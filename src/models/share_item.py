@@ -39,12 +39,15 @@ class ShareItem:
     @property
     def mount_point(self) -> str:
         """Expected mount location on macOS."""
-        return f"/Volumes/{self.name}"
+        from src.services.network_mounts import find_mount
+        volume = find_mount(self.host_ip, self.name, self.host_name)
+        return volume.mount_point if volume else f"/Volumes/{self.name}"
 
     @property
     def is_mounted(self) -> bool:
         """Check whether this share is currently mounted."""
-        return os.path.exists(self.mount_point) and os.path.ismount(self.mount_point)
+        from src.services.network_mounts import find_mount
+        return find_mount(self.host_ip, self.name, self.host_name) is not None
 
     def refresh_status(self) -> MountStatus:
         """Re-examine the filesystem and update our status accordingly."""

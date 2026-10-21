@@ -5,7 +5,7 @@ import json
 import logging
 import sys
 from src.models.share_item import HostEntry, ShareItem
-from src.services import config_loader, lan_scanner, mounter
+from src.services import config_loader, lan_scanner, mounter, network_mounts
 
 
 def drive_dict(share):
@@ -22,6 +22,20 @@ def host_dict(host):
 def dispatch(request):
     action = request.get("action")
     config = request.get("config")
+    if action in ("mounted", "eject_volume", "reveal_volume"):
+        ok, error = True, ""
+        if action != "mounted":
+            volume_id = request.get("volume_id", "")
+            if not isinstance(volume_id, str) or len(volume_id) != 64:
+                raise ValueError("Choose a connected network drive.")
+            if action == "eject_volume":
+                ok, error = network_mounts.eject_volume(volume_id)
+            else:
+                ok = network_mounts.reveal_volume(volume_id)
+                if not ok:
+                    error = "This drive is no longer connected."
+        return {"ok": ok, "error": error,
+                "volumes": [v.to_dict() for v in network_mounts.list_network_mounts()]}
     if action == "saved":
         return {"hosts": [host_dict(h) for h in config_loader.load_hosts(config)], "ok": True}
     if action == "scan":
@@ -36,7 +50,7 @@ def dispatch(request):
     if action == "shares":
         shares, error = lan_scanner.list_shares_for_host(address, username, password)
         return {"ok": not bool(error), "error": error,
-                "drives": [drive_dict(ShareItem(s, address, address)) for s in shares]}
+                "drives": [drive_dict(ShareItem(s, address, request.get("name") or address)) for s in shares]}
     if action == "save":
         hosts = config_loader.load_hosts(config)
         entry = HostEntry.from_dict({"id": address, "name": request.get("name") or address,
@@ -49,7 +63,7 @@ def dispatch(request):
     name = request.get("share", "")
     if not isinstance(name, str) or not name or name in (".", "..") or '/' in name or '\x00' in name:
         raise ValueError("Choose a valid shared drive.")
-    share = ShareItem(name, address, address)
+    share = ShareItem(name, address, request.get("name") or address)
     if action == "mount":
         ok = mounter.mount_share(share, username, password)
     elif action == "eject":

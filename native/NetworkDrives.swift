@@ -18,11 +18,37 @@ struct Server: Codable, Identifiable, Equatable {
     var symbol: String { name.localizedCaseInsensitiveContains("nas") || name.localizedCaseInsensitiveContains("storage") ? "externaldrive.connected.to.line.below" : "desktopcomputer" }
 }
 
+struct MountedVolume: Decodable, Identifiable, Equatable {
+    var id: String
+    var name: String
+    var address: String
+    var serverName: String
+    var share: String
+    var mountPoint: String
+    var filesystem: String
+    enum CodingKeys: String, CodingKey {
+        case id, name, address, share, filesystem
+        case serverName = "server_name"
+        case mountPoint = "mount_point"
+    }
+    private func hostKey(_ value: String) -> String {
+        var key = (value.removingPercentEncoding ?? value).lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        for suffix in ["._smb._tcp.local", "._afpovertcp._tcp.local", ".local"] {
+            if key.hasSuffix(suffix) { key = String(key.dropLast(suffix.count)); break }
+        }
+        return key
+    }
+    func matches(_ server: Server, share name: String) -> Bool {
+        filesystem == "smbfs" && share == name && !Set([hostKey(server.address), hostKey(server.name)]).isDisjoint(with: [hostKey(address), hostKey(serverName)])
+    }
+}
+
 struct Response: Decodable {
     var ok: Bool
     var error: String?
     var hosts: [Server]?
     var drives: [Drive]?
+    var volumes: [MountedVolume]?
 }
 
 /// Resolves the actual system glass class at runtime so the same binary also runs on macOS 13–15.
@@ -122,6 +148,11 @@ struct Service {
 
 @MainActor final class DriveStore: ObservableObject {
     @Published var servers: [Server] = []
+    @Published var mountedVolumes: [MountedVolume] = []
+    @Published var showingConnected = false
+    @Published var refreshingMounted = false
+    @Published var mountedError: String?
+    @Published var ejectingVolumeID: String?
     @Published var selectedID: String?
     @Published var search = ""
     @Published var username = ""
@@ -146,7 +177,7 @@ struct Service {
         servers.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) || $0.address.localizedCaseInsensitiveContains(search) }
             .sorted { $0.saved != $1.saved ? $0.saved : $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
-    var connectedCount: Int { servers.flatMap(\.drives).filter(\.connected).count }
+    var connectedCount: Int { mountedVolumes.count }
     var connectedSelection: Bool { selected?.drives.contains { selectedDrives.contains($0.id) && $0.connected } ?? false }
 
     func start() async {
@@ -158,6 +189,60 @@ struct Service {
             else { report(response.error ?? "Could not load saved servers.") }
         } catch { report(error.localizedDescription) }
         await scan()
+    }
+    func monitorMounts() async {
+        while !Task.isCancelled {
+            await refreshMounted()
+            do { try await Task.sleep(nanoseconds: 3_000_000_000) }
+            catch { return }
+        }
+    }
+    func refreshMounted() async {
+        guard !refreshingMounted && !working else { return }
+        refreshingMounted = true
+        defer { refreshingMounted = false }
+        do {
+            let response = try await Service.request(["action": "mounted"])
+            guard response.ok else { mountedError = response.error ?? "Could not refresh connected drives."; return }
+            guard !working else { return }
+            mountedError = nil
+            applyMounted(response.volumes ?? [])
+        } catch { mountedError = "Could not refresh connected drives. Showing the last known list." }
+    }
+    func applyMounted(_ volumes: [MountedVolume]) {
+        mountedVolumes = volumes
+        for index in servers.indices {
+            for row in servers[index].drives.indices {
+                let found = volumes.contains { $0.matches(servers[index], share: servers[index].drives[row].name) }
+                if found { servers[index].drives[row].status = "connected" }
+                else if servers[index].drives[row].status == "connected" { servers[index].drives[row].status = "disconnected" }
+            }
+        }
+    }
+    func showConnected() {
+        guard !working && !loading else { return }
+        choose(nil)
+        showingConnected = true
+    }
+    func ejectMounted(_ volume: MountedVolume) async {
+        guard !working && !loading else { return }
+        working = true
+        ejectingVolumeID = volume.id
+        defer { working = false; ejectingVolumeID = nil }
+        note("Ejecting \(volume.name)…")
+        do {
+            let response = try await Service.request(["action": "eject_volume", "volume_id": volume.id])
+            if let volumes = response.volumes { applyMounted(volumes) }
+            if response.ok { note("Ejected \(volume.name)") }
+            else { report(response.error ?? "The drive is in use. Close its files and try again.") }
+        } catch { report(error.localizedDescription) }
+    }
+    func openMounted(_ volume: MountedVolume) async {
+        do {
+            let response = try await Service.request(["action": "reveal_volume", "volume_id": volume.id])
+            if !response.ok { report(response.error ?? "Could not open drive.") }
+            if let volumes = response.volumes { applyMounted(volumes) }
+        } catch { report(error.localizedDescription) }
     }
     func note(_ message: String) {
         status = message
@@ -191,6 +276,7 @@ struct Service {
     }
     func choose(_ server: Server?) {
         guard !working && !loading else { return }
+        showingConnected = false
         selectedID = server?.id
         password = ""
         username = ""
@@ -222,7 +308,7 @@ struct Service {
         note("Loading drives…")
         defer { loading = false }
         do {
-            let response = try await Service.request(["action": "shares", "address": server.address, "username": username, "password": password])
+            let response = try await Service.request(["action": "shares", "address": server.address, "name": server.name, "username": username, "password": password])
             guard response.ok else { report(response.error ?? "Check your sign-in details."); return }
             if let index = servers.firstIndex(where: { $0.id == server.id }) {
                 servers[index].drives = response.drives ?? []
@@ -245,13 +331,13 @@ struct Service {
         let targets = server.drives.filter { selectedDrives.contains($0.id) && (action != "eject" || $0.connected) }
         guard !targets.isEmpty else { return }
         working = true; error = nil
-        defer { working = false; password = "" }
+        defer { working = false; password = ""; Task { await refreshMounted() } }
         let user = username, secret = password
         var success = 0
         for (offset, drive) in targets.enumerated() {
             note("\(action == "eject" ? "Ejecting" : "Connecting") \(offset + 1) of \(targets.count)…")
             do {
-                let response = try await Service.request(["action": action, "address": server.address, "share": drive.name, "username": user, "password": secret])
+                let response = try await Service.request(["action": action, "address": server.address, "name": server.name, "share": drive.name, "username": user, "password": secret])
                 if let updated = response.drives?.first, let index = servers.firstIndex(where: { $0.id == server.id }), let row = servers[index].drives.firstIndex(where: { $0.id == drive.id }) {
                     servers[index].drives[row] = updated
                 }
@@ -264,7 +350,7 @@ struct Service {
     func finder(_ drive: Drive? = nil) async {
         guard let server = selected else { return }
         do {
-            var payload: [String: Any] = ["action": drive == nil ? "finder" : "reveal", "address": server.address]
+            var payload: [String: Any] = ["action": drive == nil ? "finder" : "reveal", "address": server.address, "name": server.name]
             if let drive { payload["share"] = drive.name }
             // Finder handles authentication itself, so no password is needed here.
             let response = try await Service.request(payload)
@@ -296,7 +382,7 @@ struct RootView: View {
                 Color(nsColor: .windowBackgroundColor)
                 LinearGradient(colors: [Color.blue.opacity(0.055), .clear, Color.teal.opacity(0.035)], startPoint: .topLeading, endPoint: .bottomTrailing)
                 VStack(spacing: 0) {
-                    if let server = store.selected { detail(server) } else { home }
+                    if store.showingConnected { connectedPage } else if let server = store.selected { detail(server) } else { home }
                     statusBar
                 }
             }
@@ -307,6 +393,10 @@ struct RootView: View {
         .onAppear { applyAppearance() }
         .onChange(of: appearance) { _ in applyAppearance() }
         .task { await store.start() }
+        .task { await store.monitorMounts() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await store.refreshMounted() }
+        }
         .sheet(isPresented: $store.showingAdd) { addSheet }
         .sheet(isPresented: $store.showingActivity) { activitySheet }
         .alert("Something needs attention", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) {
@@ -325,7 +415,16 @@ struct RootView: View {
                 Label("Overview", systemImage: "square.grid.2x2")
                     .font(.system(size: 13, weight: .medium))
                     .frame(maxWidth: .infinity, alignment: .leading).padding(12)
-                    .background(store.selectedID == nil ? Color.blue.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 12))
+                    .background(store.selectedID == nil && !store.showingConnected ? Color.blue.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 12))
+            }.buttonStyle(.plain).disabled(store.working || store.loading)
+            Button { store.showConnected() } label: {
+                HStack {
+                    Label("Connected", systemImage: "externaldrive.badge.checkmark")
+                    Spacer()
+                    Text("\(store.mountedVolumes.count)").font(.system(size: 11, weight: .medium))
+                        .padding(.horizontal, 7).padding(.vertical, 3).background(.quaternary, in: Capsule())
+                }.font(.system(size: 13, weight: .medium)).padding(12)
+                    .background(store.showingConnected ? Color.blue.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 12))
             }.buttonStyle(.plain).disabled(store.working || store.loading)
             HStack(spacing: 7) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
@@ -404,6 +503,7 @@ struct RootView: View {
                         }
                     }.font(.system(size: 12)).foregroundStyle(.secondary)
                 }.padding(.vertical, 6)
+                if !store.mountedVolumes.isEmpty { connectedPreview }
                 HStack {
                     Text("Servers").font(.system(size: 17, weight: .semibold))
                     Spacer()
@@ -429,6 +529,74 @@ struct RootView: View {
                     }
                 }
             }.padding(34)
+        }
+    }
+
+    var connectedPage: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            HStack {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("Connected drives").font(.system(size: 28, weight: .bold, design: .rounded))
+                    Text("Network drives connected to this Mac, including Finder.")
+                        .font(.system(size: 13)).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button { Task { await store.refreshMounted() } } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                }.buttonStyle(PillStyle()).disabled(store.refreshingMounted || store.working)
+            }
+            HStack(spacing: 7) {
+                Circle().fill(store.mountedError == nil ? Color.green : Color.orange).frame(width: 6, height: 6)
+                Text(store.mountedError ?? "\(store.mountedVolumes.count) connected · Updates automatically")
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
+            }
+            ScrollView {
+                LazyVStack(spacing: 10) {
+                    ForEach(store.mountedVolumes) { volume in mountedRow(volume) }
+                    if store.mountedVolumes.isEmpty {
+                        VStack(spacing: 12) {
+                            Image(systemName: "externaldrive").font(.system(size: 36, weight: .ultraLight)).foregroundStyle(.secondary)
+                            Text(store.refreshingMounted ? "Checking connected drives…" : "No network drives connected")
+                                .font(.system(size: 15, weight: .medium))
+                            Text("Drives you connect here or in Finder appear automatically.")
+                                .font(.system(size: 12)).foregroundStyle(.secondary)
+                        }.frame(maxWidth: .infinity).padding(.vertical, 60)
+                    }
+                }.padding(.bottom, 8)
+            }
+        }.padding(30)
+    }
+
+    func mountedRow(_ volume: MountedVolume) -> some View {
+        HStack(spacing: 13) {
+            Image(systemName: "externaldrive.fill").font(.system(size: 25)).foregroundStyle(.blue)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(volume.name).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                Text(volume.serverName).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                Text(volume.mountPoint).font(.system(size: 10)).foregroundStyle(.tertiary).lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            Button("Open") { Task { await store.openMounted(volume) } }
+                .buttonStyle(PillStyle()).disabled(store.working)
+            Button { Task { await store.ejectMounted(volume) } } label: {
+                Label(store.ejectingVolumeID == volume.id ? "Ejecting…" : "Eject", systemImage: "eject")
+            }.buttonStyle(PillStyle()).disabled(store.working || store.loading)
+                .accessibilityLabel("Eject \(volume.name) from \(volume.serverName) at \(volume.mountPoint)")
+        }.padding(16).modifier(GlassCard(radius: 19))
+    }
+
+    var connectedPreview: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("Connected").font(.system(size: 17, weight: .semibold))
+                Text("\(store.mountedVolumes.count)").font(.system(size: 12)).foregroundStyle(.secondary)
+                Spacer()
+                Button("View all") { store.showConnected() }.buttonStyle(.borderless)
+            }
+            if let warning = store.mountedError {
+                Text(warning).font(.system(size: 11)).foregroundStyle(.orange)
+            }
+            ForEach(Array(store.mountedVolumes.prefix(2))) { volume in mountedRow(volume) }
         }
     }
 

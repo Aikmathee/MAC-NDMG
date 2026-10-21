@@ -205,29 +205,16 @@ def unmount_share(share: ShareItem) -> bool:
     """
     Unmount (eject) a mounted share via ``diskutil unmount``.
     """
-    if not share.is_mounted:
-        share.status = MountStatus.DISCONNECTED
-        return True
-
+    from src.services.network_mounts import find_mount, eject_volume
     try:
-        result = subprocess.run(
-            ["diskutil", "unmount", share.mount_point],
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-        if result.returncode == 0:
+        volume = find_mount(share.host_ip, share.name, share.host_name)
+        ok, error = eject_volume(volume.id) if volume else (True, "")
+        share.error_message = error
+        if ok:
             share.status = MountStatus.DISCONNECTED
-            share.error_message = ""
-            log.info("Unmounted: %s", share.name)
-            return True
-        else:
-            share.error_message = result.stderr.strip()
-            log.error("Failed to unmount %s: %s", share.name, share.error_message)
-            return False
+        return ok
     except Exception as exc:
         share.error_message = str(exc)
-        log.exception("Error unmounting %s", share.name)
         return False
 
 
