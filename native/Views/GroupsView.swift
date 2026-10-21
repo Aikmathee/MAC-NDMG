@@ -165,6 +165,31 @@ extension RootView {
     }
 
     var groupEditor: some View {
+        ScrollView {
+            LazyVStack(spacing: 12) {
+                ForEach(store.rememberedDrives) { drive in
+                    Toggle(isOn: Binding(get: { store.newGroupDriveIDs.contains(drive.id) }, set: { selected in
+                        if selected { store.newGroupDriveIDs.insert(drive.id) } else { store.newGroupDriveIDs.remove(drive.id) }
+                    })) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(drive.name).font(.system(size: 13, weight: .medium))
+                                Text(drive.serverName).font(.system(size: 11)).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if store.isConnected(drive) { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).font(.system(size: 12)) }
+                        }
+                    }.toggleStyle(.checkbox).padding(.vertical, 4)
+                }
+            }.padding(4)
+        }.frame(maxHeight: .infinity)
+            .modifier(NativeScrollEdges())
+            .modifier(NativeSafeAreaBar(edge: .top) { groupEditorHeader })
+            .modifier(NativeSafeAreaBar(edge: .bottom) { groupEditorActions })
+            .padding(28).frame(width: 490, height: 560).disabled(store.savingGroup)
+    }
+
+    var groupEditorHeader: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
                 Text(store.editingGroupID == nil ? "New group" : "Edit group")
@@ -181,24 +206,11 @@ extension RootView {
                 }.buttonStyle(FramedButtonStyle())
                 Button("Clear") { store.newGroupDriveIDs = [] }.buttonStyle(FramedButtonStyle())
             }
-            ScrollView {
-                LazyVStack(spacing: 12) {
-                    ForEach(store.rememberedDrives) { drive in
-                        Toggle(isOn: Binding(get: { store.newGroupDriveIDs.contains(drive.id) }, set: { selected in
-                            if selected { store.newGroupDriveIDs.insert(drive.id) } else { store.newGroupDriveIDs.remove(drive.id) }
-                        })) {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(drive.name).font(.system(size: 13, weight: .medium))
-                                    Text(drive.serverName).font(.system(size: 11)).foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                if store.isConnected(drive) { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).font(.system(size: 12)) }
-                            }
-                        }.toggleStyle(.checkbox).padding(.vertical, 4)
-                    }
-                }.padding(4)
-            }.frame(maxHeight: .infinity)
+        }.padding(.bottom, 16)
+    }
+
+    var groupEditorActions: some View {
+        VStack(alignment: .leading, spacing: 12) {
             if let message = store.groupEditorError { Text(message).font(.system(size: 12)).foregroundStyle(.red) }
             HStack {
                 Button("Cancel") { store.showingGroupEditor = false }.buttonStyle(PillStyle()).keyboardShortcut(.cancelAction)
@@ -208,7 +220,7 @@ extension RootView {
                     .buttonStyle(PillStyle(primary: true)).keyboardShortcut(.defaultAction)
                     .disabled(store.newGroupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.newGroupName.count > 80 || store.newGroupDriveIDs.isEmpty || store.savingGroup)
             }
-        }.padding(28).frame(width: 490, height: 560).disabled(store.savingGroup)
+        }.padding(.top, 16)
     }
 
 }

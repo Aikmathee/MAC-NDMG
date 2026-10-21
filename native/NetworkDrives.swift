@@ -781,6 +781,33 @@ struct RootView: View {
     }
 
     var multiServerPage: some View {
+        ScrollView {
+            VStack(spacing: 12) {
+                ForEach(store.selectedServers(store.selectedServerIDs)) { server in
+                    HStack(spacing: 14) {
+                        Image(systemName: server.symbol).font(.system(size: 25)).foregroundStyle(.blue)
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(server.name).font(.system(size: 15, weight: .semibold))
+                            Text(server.address).font(.system(size: 12)).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Text("\(store.volumesForServers([server.id]).count) connected").font(.system(size: 12)).foregroundStyle(.secondary)
+                    }.padding(20).modifier(ContentCard(radius: 18))
+                        .contextMenu { serverContext(store.selectedServerIDs) }
+                }
+            }
+            }
+            .modifier(NativeScrollEdges())
+            .modifier(NativeSafeAreaBar(edge: .top) { multiServerHeader })
+            .modifier(NativeSafeAreaBar(edge: .bottom) {
+            Text("⌘-click to add a server · Shift-click to select a range · Control-click for actions")
+            .font(.system(size: 11)).foregroundStyle(.secondary)
+                .padding(.top, 16)
+            })
+            .padding(30)
+    }
+
+    var multiServerHeader: some View {
         VStack(alignment: .leading, spacing: 22) {
             HStack {
                 VStack(alignment: .leading, spacing: 7) {
@@ -799,26 +826,9 @@ struct RootView: View {
                 Button("Save as group…") { store.groupFromSaved(store.savedForServers(store.selectedServerIDs)) }
                     .buttonStyle(PillStyle()).disabled(store.working || store.savedForServers(store.selectedServerIDs).isEmpty)
             }
-            ScrollView {
-                VStack(spacing: 12) {
-                    ForEach(store.selectedServers(store.selectedServerIDs)) { server in
-                        HStack(spacing: 14) {
-                            Image(systemName: server.symbol).font(.system(size: 25)).foregroundStyle(.blue)
-                            VStack(alignment: .leading, spacing: 5) {
-                                Text(server.name).font(.system(size: 15, weight: .semibold))
-                                Text(server.address).font(.system(size: 12)).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Text("\(store.volumesForServers([server.id]).count) connected").font(.system(size: 12)).foregroundStyle(.secondary)
-                        }.padding(20).modifier(ContentCard(radius: 18))
-                            .contextMenu { serverContext(store.selectedServerIDs) }
-                    }
-                }
-            }
-            Text("⌘-click to add a server · Shift-click to select a range · Control-click for actions")
-                .font(.system(size: 11)).foregroundStyle(.secondary)
-        }.padding(30)
+        }.padding(.bottom, 18)
     }
+
 
     @ViewBuilder func mountedContext(_ ids: Set<String>) -> some View {
         Button("Eject selected (\(ids.count))") {

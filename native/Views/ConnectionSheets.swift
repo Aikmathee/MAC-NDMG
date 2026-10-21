@@ -52,12 +52,6 @@ extension RootView {
     }
 
     var activitySheet: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack {
-                Text("Activity").font(.system(size: 22, weight: .bold, design: .rounded))
-                Spacer()
-                Button("Done") { store.showingActivity = false }.buttonStyle(PillStyle()).keyboardShortcut(.cancelAction)
-            }
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     if store.history.isEmpty { Text("No recent activity.").foregroundStyle(.secondary) }
@@ -66,7 +60,15 @@ extension RootView {
                     }
                 }.textSelection(.enabled)
             }
-        }.padding(28).frame(width: 480, height: 340)
+            .modifier(NativeScrollEdges())
+            .modifier(NativeSafeAreaBar(edge: .top) {
+            HStack {
+                Text("Activity").font(.system(size: 22, weight: .bold, design: .rounded))
+                Spacer()
+                Button("Done") { store.showingActivity = false }.buttonStyle(PillStyle()).keyboardShortcut(.cancelAction)
+            }
+                .padding(.bottom, 18)
+            })
+            .padding(28).frame(width: 480, height: 340)
     }
 }
-

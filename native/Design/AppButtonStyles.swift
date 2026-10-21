@@ -13,7 +13,7 @@ struct PillStyle: PrimitiveButtonStyle {
                 #if MODERN_GLASS
                 if #available(macOS 26, *) {
                     if primary { Button(configuration).buttonStyle(.glassProminent) }
-                    else { Button(configuration).buttonStyle(.glass).tint(.gray) }
+                    else { Button(configuration).buttonStyle(.bordered).tint(.gray) }
                 } else { fallback(configuration) }
                 #else
                 fallback(configuration)

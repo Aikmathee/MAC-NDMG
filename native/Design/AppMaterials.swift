@@ -114,7 +114,7 @@ struct NativeSafeAreaBar<Bar: View>: ViewModifier {
     @ViewBuilder func body(content: Content) -> some View {
         #if MODERN_GLASS
         if #available(macOS 26, *) {
-            content.safeAreaBar(edge: edge, spacing: 0) { bar }
+            content.safeAreaBar(edge: edge, spacing: 0) { bar.background(.bar) }
         } else {
             content.safeAreaInset(edge: edge, spacing: 0) { bar.background(.bar) }
         }
