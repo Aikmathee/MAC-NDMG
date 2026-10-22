@@ -46,6 +46,11 @@ class DiscoveryAndSessionTests(unittest.TestCase):
         self.assertEqual(merged[0].host, 'editing-node')
         self.assertEqual(merged[0].source, 'connected')
 
+    def test_bonjour_advertisement_deduplicates_service_instance_mount(self):
+        bonjour = lan_scanner.DiscoveredHost('editing Mac', 'editing-mac.local', '192.0.2.55', 'bonjour')
+        mounts = network_mounts.parse_mounts('//user@Editing%20Mac._smb._tcp.local/Media on /Volumes/Media (smbfs, nodev)')
+        self.assertEqual(lan_scanner.merge_connected_hosts([bonjour], mounts), [bonjour])
+
     def test_mount_inventory_failure_does_not_discard_discovered_servers(self):
         bonjour = lan_scanner.DiscoveredHost('Editing node', 'editing-node.local', '')
         with patch.object(lan_scanner, 'discover_bonjour_smb', return_value=[bonjour]), \

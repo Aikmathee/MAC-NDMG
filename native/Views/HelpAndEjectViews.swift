@@ -63,7 +63,7 @@ extension RootView {
                                 HStack {
                                     Label(process.displayName, systemImage: "app")
                                     Spacer()
-                                    Text("PID \(process.pid)").foregroundStyle(.secondary)
+                                    Text("PID \(String(process.pid))").foregroundStyle(.secondary)
                                 }.font(.system(size: 12))
                             }
                         }

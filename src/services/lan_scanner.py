@@ -204,7 +204,9 @@ def merge_connected_hosts(hosts, volumes):
         address = volume.address
         if not (host_identity.hostname(address) or host_identity.is_ip(address) or host_identity.bonjour_service_address(address)):
             continue
-        if network_mounts._host_key(address) in known or address in known_ips:
+        if (network_mounts._host_key(address) in known or address in known_ips
+                or (host_identity.bonjour_service_address(address)
+                    and any(h.source == 'bonjour' and h.name.casefold() == volume.server_name.casefold() for h in result))):
             continue
         resolved = host_identity.current_addresses(address)
         matching = next((i for i, h in enumerate(result) if h.ip and h.ip in resolved), None)

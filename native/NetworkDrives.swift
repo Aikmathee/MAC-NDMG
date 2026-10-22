@@ -18,6 +18,7 @@ struct Server: Codable, Identifiable, Equatable {
     var ip: String? = nil
     var discovered: Bool? = nil
     var source: String? = nil
+    var addressLabel: String { address.lowercased().contains("._smb._tcp.local") ? "SMB server" : address }
     var symbol: String { name.localizedCaseInsensitiveContains("nas") || name.localizedCaseInsensitiveContains("storage") ? "externaldrive.connected.to.line.below" : "desktopcomputer" }
 }
 
@@ -633,10 +634,20 @@ struct AuthenticatedServer {
     }
     func merge(_ incoming: [Server]) {
         for server in incoming {
-            if let index = servers.firstIndex(where: { MountedVolume.hostKey($0.address) == MountedVolume.hostKey(server.address) }) {
+            if let index = servers.firstIndex(where: { existing in
+                let sameEndpoint = MountedVolume.hostKey(existing.address) == MountedVolume.hostKey(server.address)
+                let sameServiceName = existing.name.caseInsensitiveCompare(server.name) == .orderedSame &&
+                    ((server.source == "bonjour" && existing.address.contains("._smb._tcp.local")) ||
+                     (existing.source == "bonjour" && server.address.contains("._smb._tcp.local")))
+                return sameEndpoint || sameServiceName
+            }) {
                 if server.saved { servers[index].saved = true }
                 if server.discovered == true {
                     if server.source != "connected" {
+                        if server.source == "bonjour" && servers[index].address.contains("._smb._tcp.local") {
+                            servers[index].address = server.address
+                        }
+                        servers[index].source = server.source
                         servers[index].ip = server.ip
                         if !servers[index].saved { servers[index].name = server.name }
                     }
@@ -656,7 +667,11 @@ struct AuthenticatedServer {
             if response.ok {
                 let hosts = response.hosts ?? []
                 let found = Set(hosts.map { MountedVolume.hostKey($0.address) })
-                servers.removeAll { $0.discovered == true && !$0.saved && !found.contains(MountedVolume.hostKey($0.address)) }
+                let names = Set(hosts.map { $0.name.lowercased() })
+                servers.removeAll {
+                    $0.discovered == true && !$0.saved && !found.contains(MountedVolume.hostKey($0.address)) &&
+                    !($0.address.contains("._smb._tcp.local") && names.contains($0.name.lowercased()))
+                }
                 merge(hosts)
                 selectedServerIDs.formIntersection(Set(servers.map(\.id)))
                 if let id = selectedID, !servers.contains(where: { $0.id == id }) { selectedID = nil }
@@ -842,7 +857,7 @@ struct RootView: View {
                         Image(systemName: server.symbol).font(.system(size: 18)).foregroundStyle(.blue).frame(width: 24)
                         VStack(alignment: .leading, spacing: 4) {
                             Text(server.name).font(.system(size: 12, weight: .medium)).lineLimit(2)
-                            Text(server.address).font(.system(size: 10)).foregroundStyle(.secondary)
+                            Text(server.addressLabel).help(server.address.removingPercentEncoding ?? server.address).font(.system(size: 10)).foregroundStyle(.secondary)
                         }
                         Spacer(minLength: 0)
                         if server.saved { Image(systemName: "star.fill").font(.system(size: 9)).foregroundStyle(.secondary) }
@@ -880,7 +895,7 @@ struct RootView: View {
                         Image(systemName: server.symbol).font(.system(size: 25)).foregroundStyle(.blue)
                         VStack(alignment: .leading, spacing: 5) {
                             Text(server.name).font(.system(size: 15, weight: .semibold))
-                            Text(server.address).font(.system(size: 12)).foregroundStyle(.secondary)
+                            Text(server.addressLabel).help(server.address.removingPercentEncoding ?? server.address).font(.system(size: 12)).foregroundStyle(.secondary)
                         }
                         Spacer()
                         Text("\(store.volumesForServers([server.id]).count) connected").font(.system(size: 12)).foregroundStyle(.secondary)
@@ -899,8 +914,6 @@ struct RootView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 7) {
                     Text("\(store.selectedServerIDs.count) servers selected").font(.system(size: 26, weight: .bold, design: .rounded))
-                    Text("Connect or eject this selection.")
-                        .font(.system(size: 13)).foregroundStyle(.secondary)
                 }
                 Spacer()
             }

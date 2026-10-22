@@ -11,7 +11,7 @@ extension RootView {
             }
             VStack(alignment: .leading, spacing: 5) {
                 Text(server.name).font(.system(size: 14, weight: .semibold)).lineLimit(2).multilineTextAlignment(.leading)
-                Text(server.address).font(.system(size: 11)).foregroundStyle(.secondary)
+                Text(server.addressLabel).help(server.address.removingPercentEncoding ?? server.address).font(.system(size: 11)).foregroundStyle(.secondary)
             }
         }.padding(20).frame(maxWidth: .infinity, minHeight: 104, alignment: .leading).modifier(ContentCard(radius: 20))
     }
@@ -45,7 +45,7 @@ extension RootView {
                     .frame(width: 60, height: 60).modifier(ContentCard(radius: 18))
                 VStack(alignment: .leading, spacing: 5) {
                     Text(server.name).font(.system(size: 24, weight: .bold, design: .rounded)).lineLimit(2)
-                    Text(server.address).font(.system(size: 12)).foregroundStyle(.secondary)
+                    Text(server.addressLabel).help(server.address.removingPercentEncoding ?? server.address).font(.system(size: 12)).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Menu {

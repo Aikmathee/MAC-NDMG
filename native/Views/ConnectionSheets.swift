@@ -6,7 +6,7 @@ extension RootView {
             Image(systemName: "lock.shield").font(.system(size: 30, weight: .light)).foregroundStyle(.blue)
             VStack(alignment: .leading, spacing: 7) {
                 Text(server.name).font(.system(size: 22, weight: .bold, design: .rounded))
-                Text(server.address).font(.system(size: 12)).foregroundStyle(.secondary)
+                Text(server.addressLabel).help(server.address.removingPercentEncoding ?? server.address).font(.system(size: 12)).foregroundStyle(.secondary)
             }
             Form {
                 TextField("Username", text: $store.username).textContentType(.username)
