@@ -5,9 +5,8 @@ extension RootView {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 28) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Your workspace").font(.system(size: 30, weight: .bold, design: .rounded))
-                    Text(store.mountedVolumes.isEmpty ? "Connect a drive to get started." : "\(store.mountedVolumes.count) drives connected · Ready to work")
-                        .font(.subheadline).foregroundStyle(.secondary)
+                    Text("Network drives").font(.system(size: 30, weight: .bold, design: .rounded))
+
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 if !store.mountedVolumes.isEmpty { connectedPreview }
                 overviewGroups

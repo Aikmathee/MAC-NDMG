@@ -24,9 +24,8 @@ extension RootView {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
                 VStack(alignment: .leading, spacing: 7) {
-                    Text("Connected drives").font(.system(size: 28, weight: .bold, design: .rounded))
-                    Text("⌘-click to select multiple · Shift-click for a range")
-                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                    Text("Connected").font(.system(size: 28, weight: .bold, design: .rounded))
+
                 }
                 Spacer()
             }

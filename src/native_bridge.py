@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
+import subprocess
 from urllib.parse import quote
 from src.models.share_item import HostEntry, ShareItem
 from src.services import config_loader, lan_scanner, mounter, network_mounts, connection_groups, host_identity
@@ -18,6 +19,20 @@ def drive_dict(share):
 def host_dict(host):
     return {"id": host.ip_or_hostname, "name": host.name, "address": host.ip_or_hostname,
             "saved": True, "drives": [drive_dict(s) for s in host.shares]}
+
+
+def discovered_dict(host):
+    address = host_identity.connection_address(host)
+    if not address:
+        return None
+    return {"id": address.lower(), "name": host.name, "address": address,
+            "ip": host.ip or None, "source": host.source, "discovered": True,
+            "saved": False, "drives": []}
+
+
+def connected_hosts(volumes):
+    return [value for host in lan_scanner.merge_connected_hosts([], volumes)
+            if (value := discovered_dict(host))]
 
 
 def library_dict(state, volumes=()):
@@ -65,7 +80,16 @@ def dispatch(request):
                 if not ok:
                     error = "This drive is no longer connected."
         volumes = network_mounts.list_network_mounts()
-        result = {"ok": ok, "error": error, "volumes": [v.to_dict() for v in volumes]}
+        if action == "eject_volume" and not ok and not any(v.id == volume_id for v in volumes):
+            ok, error = True, ""  # macOS completed it while the request was timing out.
+        result = {"ok": ok, "error": error, "volumes": [v.to_dict() for v in volumes],
+                  "hosts": connected_hosts(volumes)}
+        if not ok and action == "eject_volume":
+            try:
+                result["eject_failure"] = network_mounts.eject_diagnostics(volume_id, error)
+            except (OSError, RuntimeError, subprocess.SubprocessError):
+                result["eject_failure"] = {"id": volume_id, "name": "Network drive", "message": error,
+                                           "processes": [], "limited": True}
         try:
             state = connection_groups.remember_mounts(volumes)
             result.update(library_dict(state, volumes or ()))
@@ -77,10 +101,7 @@ def dispatch(request):
         return {"hosts": [host_dict(h) for h in config_loader.load_hosts(config)], "ok": True}
     if action == "scan":
         hosts = lan_scanner.scan_all_network_hosts()
-        return {"ok": True, "hosts": [
-            {"id": address.lower(), "name": h.name, "address": address,
-             "ip": h.ip or None, "discovered": True, "saved": False, "drives": []}
-            for h in hosts if (address := host_identity.connection_address(h))]}
+        return {"ok": True, "hosts": [value for host in hosts if (value := discovered_dict(host))]}
     address = request.get("address", "")
     if not isinstance(address, str) or not address or len(address) > 253 or any(c in address for c in '/@?#\\\n\r\t '):
         raise ValueError("Enter a valid server address.")

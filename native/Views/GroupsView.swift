@@ -3,12 +3,8 @@ import SwiftUI
 extension RootView {
     var groupsPage: some View {
         List(selection: $store.librarySelection) {
-            Text("Groups").font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
-                .padding(.top, 4).padding(.bottom, 2)
-                .listRowSeparator(.hidden).listRowBackground(Color.clear)
-                .accessibilityAddTraits(.isHeader)
             if store.groups.isEmpty {
-                Label("Create a group to connect your drives together.", systemImage: "square.stack.3d.up")
+                Label("No groups", systemImage: "square.stack.3d.up")
                     .font(.system(size: 13)).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(20)
                     .modifier(ContentCard(radius: 18))
@@ -54,9 +50,8 @@ extension RootView {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
                 VStack(alignment: .leading, spacing: 7) {
-                    Text("Groups & saved drives").font(.system(size: 26, weight: .bold, design: .rounded))
-                    Text("⌘-click to select multiple · Control-click for actions")
-                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                    Text("Groups").font(.system(size: 26, weight: .bold, design: .rounded))
+
                 }
                 Spacer()
             }

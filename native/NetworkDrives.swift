@@ -17,6 +17,7 @@ struct Server: Codable, Identifiable, Equatable {
     var drives: [Drive]
     var ip: String? = nil
     var discovered: Bool? = nil
+    var source: String? = nil
     var symbol: String { name.localizedCaseInsensitiveContains("nas") || name.localizedCaseInsensitiveContains("storage") ? "externaldrive.connected.to.line.below" : "desktopcomputer" }
 }
 
@@ -34,7 +35,7 @@ struct MountedVolume: Decodable, Identifiable, Equatable {
         case serverName = "server_name"
         case mountPoint = "mount_point"
     }
-    func hostKey(_ value: String) -> String {
+    static func hostKey(_ value: String) -> String {
         var key = (value.removingPercentEncoding ?? value).lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
         for suffix in ["._smb._tcp.local", "._afpovertcp._tcp.local", ".local"] {
             if key.hasSuffix(suffix) { key = String(key.dropLast(suffix.count)); break }
@@ -42,7 +43,7 @@ struct MountedVolume: Decodable, Identifiable, Equatable {
         return key
     }
     func matches(_ server: Server, share name: String) -> Bool {
-        filesystem == "smbfs" && share == name && !Set([hostKey(server.address), hostKey(server.name), hostKey(server.ip ?? "")]).isDisjoint(with: [hostKey(address), hostKey(serverName)])
+        filesystem == "smbfs" && share == name && !Set([Self.hostKey(server.address), Self.hostKey(server.name), Self.hostKey(server.ip ?? "")]).isDisjoint(with: [Self.hostKey(address), Self.hostKey(serverName)])
     }
 }
 
@@ -67,7 +68,7 @@ struct SavedDrive: Decodable, Identifiable, Equatable {
     func matches(_ volume: MountedVolume) -> Bool {
         if mountedIDs?.contains(volume.id) == true { return true }
         if connectionProtocol == "webdav" { return volume.filesystem == "webdav" && volume.url == url }
-        return volume.filesystem == "smbfs" && volume.share == share && volume.hostKey(volume.address) == volume.hostKey(address)
+        return volume.filesystem == "smbfs" && volume.share == share && MountedVolume.hostKey(volume.address) == MountedVolume.hostKey(address)
     }
 }
 
@@ -81,6 +82,34 @@ struct DriveGroup: Decodable, Identifiable, Equatable {
     }
 }
 
+struct EjectProcess: Decodable, Identifiable {
+    var pid: Int32
+    var name: String
+    var id: Int32 { pid }
+    var displayName: String {
+        NSRunningApplication(processIdentifier: pid)?.localizedName ?? name
+    }
+}
+struct EjectFailure: Decodable, Identifiable {
+    var id: String
+    var name: String
+    var message: String
+    var processes: [EjectProcess]
+    var limited: Bool
+    var summary: String {
+        let text = message.lowercased()
+        if text.contains("busy") || text.contains("in use") || text.contains("dissent") { return "Drive is in use." }
+        if text.contains("timed out") || text.contains("did not finish") { return "Eject timed out." }
+        if text.contains("permission") || text.contains("not permitted") { return "macOS denied the eject request." }
+        if text.contains("not responding") || text.contains("connection") { return "Check the server connection." }
+        return "macOS could not eject this drive."
+    }
+}
+struct EjectProblem: Identifiable {
+    let id = UUID()
+    var failures: [EjectFailure]
+}
+
 struct Response: Decodable {
     var ok: Bool
     var error: String?
@@ -91,10 +120,12 @@ struct Response: Decodable {
     var groups: [DriveGroup]?
     var connectionState: String?
     var storageError: String?
+    var ejectFailure: EjectFailure?
     enum CodingKeys: String, CodingKey {
         case ok, error, hosts, drives, volumes, remembered, groups
         case connectionState = "connection_state"
         case storageError = "storage_error"
+        case ejectFailure = "eject_failure"
     }
 }
 
@@ -137,6 +168,12 @@ struct AuthenticatedServer {
 }
 
 @MainActor final class DriveStore: ObservableObject {
+    @Published var finderSignInPending = false
+    @Published var showingEjectConfirmation = false
+    @Published var pendingEjectVolumes: [MountedVolume]?
+    @Published var showingHelp = false
+    @Published var ejectProblem: EjectProblem?
+    var pendingEjectIDs = Set<String>()
     @Published var servers: [Server] = []
     @Published var mountedVolumes: [MountedVolume] = []
     @Published var showingConnected = false
@@ -244,11 +281,15 @@ struct AuthenticatedServer {
         })
         groupFromSaved(rememberedDrives.filter { preferred.contains($0.id) })
     }
-    func ejectVolumes(_ volumes: [MountedVolume]) async {
+    func ejectVolumes(_ volumes: [MountedVolume], confirmed: Bool = false) async {
         guard !working && !loading && !volumes.isEmpty else { return }
+        if volumes.count > 1 && !confirmed {
+            pendingEjectVolumes = volumes; showingEjectConfirmation = true; return
+        }
         working = true; stopConnecting = false; connectingLabel = "Ejecting drives"
         defer { working = false; ejectingVolumeID = nil; connectingLabel = nil; Task { await refreshMounted() } }
         var success = 0, failed = 0
+        var failures: [EjectFailure] = []
         for (index, volume) in volumes.enumerated() {
             if stopConnecting { break }
             ejectingVolumeID = volume.id
@@ -258,11 +299,29 @@ struct AuthenticatedServer {
                 if let values = response.volumes { applyMounted(values) }
                 applyLibrary(response)
                 if response.ok { success += 1 }
-                else { failed += 1; note("\(volume.name): \(response.error ?? "Could not eject drive")") }
-            } catch { failed += 1; note("\(volume.name): \(error.localizedDescription)") }
+                else {
+                    failed += 1
+                    let message = response.error ?? "macOS could not eject this drive."
+                    failures.append(response.ejectFailure ?? EjectFailure(id: volume.id, name: volume.name, message: message, processes: [], limited: true))
+                    note("\(volume.name): \(message)")
+                }
+            } catch {
+                failed += 1
+                failures.append(EjectFailure(id: volume.id, name: volume.name, message: error.localizedDescription, processes: [], limited: true))
+                note("\(volume.name): \(error.localizedDescription)")
+            }
         }
         note("Ejected \(success) of \(volumes.count) drives" + (stopConnecting ? " · stopped" : ""))
-        if failed > 0 { error = "\(failed) drives could not be ejected. Close their open files and try again. See Activity for details." }
+        if failed > 0 { ejectProblem = EjectProblem(failures: failures) }
+    }
+    func ejectProblemDismissed() {
+        let ids = pendingEjectIDs
+        pendingEjectIDs = []
+        guard !ids.isEmpty else { return }
+        Task {
+            await refreshMounted()
+            await ejectVolumes(mountedVolumes.filter { ids.contains($0.id) }, confirmed: true)
+        }
     }
     func credentialAddresses(_ server: Server) -> [String] {
         Array(Set([server.address] + mountedVolumes.filter { $0.matches(server, share: $0.share) }.map(\.address)))
@@ -281,12 +340,12 @@ struct AuthenticatedServer {
         }.value
     }
     func syncAccountAliases(_ server: Server, credentials: ServerCredentials) async {
-        guard rememberedAccountIDs.contains(server.id) else { return }
+        guard rememberedAccountIDs.contains(server.id), !credentials.username.isEmpty else { return }
         do {
             let response = try await Service.request(["action": "mounted"])
             if let volumes = response.volumes { applyMounted(volumes) }
             try await persistAccount(credentials, server: server, remember: true)
-        } catch { note("Connected, but saved account aliases could not be updated.") }
+        } catch { note("Connected. Couldn’t update the saved account.") }
     }
     func forgetAccount(_ server: Server) async {
         do {
@@ -316,12 +375,30 @@ struct AuthenticatedServer {
                 message = response.error ?? "Sign in again to this server."
             } catch { message = "Could not reach this server. Check the network and try again." }
         }
+        if !forcePrompt && credentials == nil {
+            // Let macOS reuse an existing Finder SMB session without asking for a password.
+            if let response = try? await Service.request(["action": "shares", "address": server.address, "name": server.name]), response.ok {
+                let system = ServerCredentials(username: "", password: "")
+                sessionCredentials[server.id] = system
+                return AuthenticatedServer(credentials: system, drives: response.drives ?? [])
+            }
+        }
         username = credentials?.username ?? ""
         password = forcePrompt ? credentials?.password ?? "" : ""
         rememberAccount = rememberedAccountIDs.contains(server.id)
         authError = message
+        finderSignInPending = false
         authServer = server
         return await withCheckedContinuation { authContinuation = $0 }
+    }
+    func useFinderSignIn() async {
+        guard let server = authServer else { return }
+        username = ""; password = ""; rememberAccount = false
+        do {
+            let response = try await Service.request(["action": "finder", "address": server.address])
+            finderSignInPending = response.ok
+            authError = response.ok ? "Connect in Finder, then click Sign in." : "Finder could not open this server."
+        } catch { authError = "Finder could not open this server." }
     }
     func cancelAuthentication() {
         completedAuthentication = nil
@@ -336,18 +413,20 @@ struct AuthenticatedServer {
     }
     func submitAuthentication() async {
         guard let server = authServer, !authSubmitting else { return }
-        authSubmitting = true; authError = nil
+        authSubmitting = true; authError = nil; finderSignInPending = false
         defer { authSubmitting = false }
         let credentials = ServerCredentials(username: username.trimmingCharacters(in: .whitespacesAndNewlines), password: password)
         do {
             let response = try await Service.request(["action": "shares", "address": server.address, "name": server.name,
                                                      "username": credentials.username, "password": credentials.password])
             guard response.ok else { authError = response.error ?? "Check your username and password."; return }
-            let remember = rememberAccount
+            let remember = rememberAccount && !credentials.username.isEmpty
             do {
-                try await persistAccount(credentials, server: server, remember: remember)
+                if !credentials.username.isEmpty {
+                    try await persistAccount(credentials, server: server, remember: remember)
+                }
                 if remember { rememberedAccountIDs.insert(server.id) } else { rememberedAccountIDs.remove(server.id) }
-            } catch { note("Signed in, but the saved account could not be updated in Keychain.") }
+            } catch { note("Signed in. Couldn’t save the account.") }
             sessionCredentials[server.id] = credentials
             completedAuthentication = AuthenticatedServer(credentials: credentials, drives: response.drives ?? [])
             authServer = nil; password = ""
@@ -514,6 +593,7 @@ struct AuthenticatedServer {
             guard response.ok else { mountedError = response.error ?? "Could not refresh connected drives."; return }
             guard !working && !savingGroup else { return }
             applyLibrary(response)
+            merge(response.hosts ?? [])
             mountedError = nil
             applyMounted(response.volumes ?? [])
         } catch { mountedError = "Could not refresh connected drives. Showing the last known list." }
@@ -553,12 +633,14 @@ struct AuthenticatedServer {
     }
     func merge(_ incoming: [Server]) {
         for server in incoming {
-            if let index = servers.firstIndex(where: { CredentialVault.key($0.address) == CredentialVault.key(server.address) }) {
+            if let index = servers.firstIndex(where: { MountedVolume.hostKey($0.address) == MountedVolume.hostKey(server.address) }) {
                 if server.saved { servers[index].saved = true }
                 if server.discovered == true {
-                    servers[index].ip = server.ip
+                    if server.source != "connected" {
+                        servers[index].ip = server.ip
+                        if !servers[index].saved { servers[index].name = server.name }
+                    }
                     servers[index].discovered = true
-                    if !servers[index].saved { servers[index].name = server.name }
                 }
                 if servers[index].drives.isEmpty { servers[index].drives = server.drives }
             } else { servers.append(server) }
@@ -573,8 +655,8 @@ struct AuthenticatedServer {
             let response = try await Service.request(["action": "scan"])
             if response.ok {
                 let hosts = response.hosts ?? []
-                let found = Set(hosts.map(\.id))
-                servers.removeAll { $0.discovered == true && !$0.saved && !found.contains($0.id) }
+                let found = Set(hosts.map { MountedVolume.hostKey($0.address) })
+                servers.removeAll { $0.discovered == true && !$0.saved && !found.contains(MountedVolume.hostKey($0.address)) }
                 merge(hosts)
                 selectedServerIDs.formIntersection(Set(servers.map(\.id)))
                 if let id = selectedID, !servers.contains(where: { $0.id == id }) { selectedID = nil }
@@ -737,7 +819,17 @@ struct RootView: View {
         } message: { Text("This removes the saved group. Its drives stay connected.") }
         .sheet(isPresented: $store.showingAdd) { addSheet }
         .sheet(isPresented: $store.showingActivity) { activitySheet }
-        .alert("Something needs attention", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) {
+        .sheet(isPresented: $store.showingHelp) { appHelp }
+        .confirmationDialog("Eject \(store.pendingEjectVolumes?.count ?? 0) drives?", isPresented: $store.showingEjectConfirmation) {
+            Button("Eject") {
+                let volumes = store.pendingEjectVolumes ?? []
+                store.pendingEjectVolumes = nil
+                Task { await store.ejectVolumes(volumes, confirmed: true) }
+            }
+            Button("Cancel", role: .cancel) { store.pendingEjectVolumes = nil }
+        } message: { Text("Drives in use will stay connected.") }
+        .sheet(item: $store.ejectProblem, onDismiss: { store.ejectProblemDismissed() }) { ejectProblemSheet($0) }
+        .alert("Couldn’t complete action", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) {
             Button("OK") { store.error = nil }
         } message: { Text(store.error ?? "") }
     }
@@ -799,11 +891,6 @@ struct RootView: View {
             }
             .modifier(NativeScrollEdges())
             .modifier(NativeSafeAreaBar(edge: .top) { multiServerHeader })
-            .modifier(NativeSafeAreaBar(edge: .bottom) {
-            Text("⌘-click to add a server · Shift-click to select a range · Control-click for actions")
-            .font(.system(size: 11)).foregroundStyle(.secondary)
-                .padding(.top, 16)
-            })
             .padding(30)
     }
 
@@ -812,7 +899,7 @@ struct RootView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 7) {
                     Text("\(store.selectedServerIDs.count) servers selected").font(.system(size: 26, weight: .bold, design: .rounded))
-                    Text("Connect their shared drives together, or eject their connected drives.")
+                    Text("Connect or eject this selection.")
                         .font(.system(size: 13)).foregroundStyle(.secondary)
                 }
                 Spacer()

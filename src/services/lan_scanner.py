@@ -20,7 +20,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import List, Optional
 from urllib.parse import quote as url_quote
-from src.services import host_identity
+from src.services import host_identity, network_mounts
 
 log = logging.getLogger(__name__)
 
@@ -31,6 +31,7 @@ class DiscoveredHost:
     name: str
     host: str
     ip: str
+    source: str = "network"
 
     @property
     def display_label(self) -> str:
@@ -57,7 +58,6 @@ def discover_bonjour_smb(timeout: float = 1.5) -> List[DiscoveredHost]:
     Runs `dns-sd -B _smb._tcp local.` and resolves discovered instances.
     """
     hosts: List[DiscoveredHost] = []
-    seen_names = set()
 
     try:
         proc = subprocess.Popen(
@@ -77,20 +77,11 @@ def discover_bonjour_smb(timeout: float = 1.5) -> List[DiscoveredHost]:
                 instance_name = " ".join(parts[6:])
                 raw_instances.add(instance_name)
 
-        # Resolve each instance to hostname and IP
-        for inst in sorted(raw_instances):
-            if inst in seen_names:
-                continue
-            seen_names.add(inst)
-
-            target_host, target_ip = _resolve_bonjour_instance(inst)
-            hosts.append(
-                DiscoveredHost(
-                    name=inst,
-                    host=target_host or inst,
-                    ip=target_ip,
-                )
-            )
+        # Resolve concurrently and allow time for uncached mDNS responses.
+        with ThreadPoolExecutor(max_workers=12) as pool:
+            for inst, (target_host, target_ip) in zip(sorted(raw_instances), pool.map(_resolve_bonjour_instance, sorted(raw_instances))):
+                if target_host or target_ip:
+                    hosts.append(DiscoveredHost(inst, target_host, target_ip, "bonjour"))
 
     except Exception as exc:
         log.warning("Bonjour SMB discovery error: %s", exc)
@@ -109,7 +100,7 @@ def _resolve_bonjour_instance(instance_name: str) -> tuple[str, str]:
             stderr=subprocess.PIPE,
             text=True,
         )
-        time.sleep(0.4)
+        time.sleep(1.5)
         proc.terminate()
         stdout, _ = proc.communicate()
 
@@ -170,9 +161,8 @@ def scan_all_network_hosts() -> List[DiscoveredHost]:
     """
     Combines Bonjour mDNS discovery with subnet IP scanning for maximum coverage.
     """
-    bonjour_hosts = discover_bonjour_smb(timeout=1.2)
+    bonjour_hosts = discover_bonjour_smb(timeout=3.0)
     known_ips = {h.ip for h in bonjour_hosts if h.ip}
-    known_hosts = {h.host.lower() for h in bonjour_hosts if h.host}
 
     # Supplement with subnet scan for non-Bonjour SMB devices (e.g. Linux/Windows NAS)
     try:
@@ -196,7 +186,38 @@ def scan_all_network_hosts() -> List[DiscoveredHost]:
     except Exception as exc:
         log.debug("Subnet scan supplement error: %s", exc)
 
+    try:
+        bonjour_hosts = merge_connected_hosts(bonjour_hosts, network_mounts.list_network_mounts())
+    except (OSError, RuntimeError, subprocess.SubprocessError):
+        pass
     return bonjour_hosts
+
+
+def merge_connected_hosts(hosts, volumes):
+    """A live Finder mount must remain visible even without a Bonjour broadcast."""
+    result = list(hosts)
+    known = {network_mounts._host_key(h.host) for h in result if h.host}
+    known_ips = {h.ip for h in result if h.ip}
+    for volume in volumes:
+        if volume.filesystem != 'smbfs':
+            continue
+        address = volume.address
+        if not (host_identity.hostname(address) or host_identity.is_ip(address) or host_identity.bonjour_service_address(address)):
+            continue
+        if network_mounts._host_key(address) in known or address in known_ips:
+            continue
+        resolved = host_identity.current_addresses(address)
+        matching = next((i for i, h in enumerate(result) if h.ip and h.ip in resolved), None)
+        if matching is not None:
+            if result[matching].source == 'network':
+                old = result[matching]
+                result[matching] = DiscoveredHost(volume.server_name, address, old.ip, 'connected')
+            known.add(network_mounts._host_key(address))
+            continue
+        result.append(DiscoveredHost(volume.server_name, address,
+                                     address if host_identity.is_ip(address) else next(iter(resolved), ''), 'connected'))
+        known.add(network_mounts._host_key(address))
+    return result
 
 
 def list_shares_for_host(
@@ -210,6 +231,8 @@ def list_shares_for_host(
     Returns:
         (list_of_share_names, error_or_status_message)
     """
+    if password and not username:
+        return [], "Enter a username."
     # Build target specifier
     if username and password:
         enc_user = url_quote(username, safe="")
@@ -222,8 +245,8 @@ def list_shares_for_host(
         target = f"//{host_or_ip}"
 
     cmd = ["smbutil", "view"]
-    if not username and not password:
-        cmd.append("-g")  # guest
+    if not password:
+        cmd.append("-N")  # Reuse a system SMB session without prompting on stdin.
     cmd.append(target)
 
     log.info("Querying shares on %s...", host_or_ip)
@@ -257,7 +280,7 @@ def list_shares_for_host(
                 shares.append(match.group(1).strip())
 
         if not shares:
-            return [], "No exported disk shares found on this host"
+            return [], "No shared drives found."
 
         return shares, ""
 

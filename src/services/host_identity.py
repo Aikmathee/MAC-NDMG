@@ -3,6 +3,7 @@ from functools import lru_cache
 import ipaddress
 import re
 import socket
+from urllib.parse import quote, unquote
 
 
 def is_ip(value):
@@ -38,8 +39,16 @@ def current_addresses(host):
         return ()
 
 
+def bonjour_service_address(value):
+    value = unquote(value).rstrip('.')
+    if (value.lower().endswith('._smb._tcp.local') and len(value) <= 253
+            and not any(ord(c) < 32 or c in '/@?#\\' for c in value)):
+        return quote(value, safe='-._').lower()
+    return ''
+
+
 def connection_address(host):
-    return hostname(host.host) or host.ip or (host.host if is_ip(host.host) else '')
+    return hostname(host.host) or bonjour_service_address(host.host) or host.ip or (host.host if is_ip(host.host) else '')
 
 
 def matches_ip(host, address):

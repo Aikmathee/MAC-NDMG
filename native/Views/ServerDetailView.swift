@@ -23,7 +23,7 @@ extension RootView {
                     .tag(drive.id).listRowSeparator(.hidden).listRowBackground(Color.clear)
             }
             if server.drives.isEmpty {
-                Text("Choose Load drives to sign in and see shared drives.").font(.system(size: 13)).foregroundStyle(.secondary).padding(.vertical, 40)
+                Text("No drives loaded").font(.system(size: 13)).foregroundStyle(.secondary).padding(.vertical, 40)
             }
         }.listStyle(.inset(alternatesRowBackgrounds: false)).scrollContentBackground(.hidden)
             .modifier(NativeScrollEdges()).disabled(store.working)
@@ -66,7 +66,7 @@ extension RootView {
             }
             }
             HStack {
-                Text("Shared drives · \(server.drives.count)").font(.system(size: 16, weight: .semibold))
+                Text("Drives · \(server.drives.count)").font(.system(size: 16, weight: .semibold))
                 Spacer()
                 Button("Select all") { store.selectedDrives = Set(server.drives.map(\.id)) }.buttonStyle(FramedButtonStyle()).disabled(store.working)
                 Button("Deselect all") { store.selectedDrives = [] }.buttonStyle(FramedButtonStyle()).disabled(store.working)

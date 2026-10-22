@@ -9,8 +9,8 @@ handles discovery, authentication, mounting, and saved servers.
 Requires **macOS 13 or newer**. The distributed app includes Python.
 
 1. Unzip `Network-Drive-Manager-macOS.zip` and move the app into Applications.
-2. The app opens to **Overview**, shows connected drives, and searches the local network automatically.
-3. Choose a server card, enter its username and password, and choose **Load drives**.
+2. The app opens to **Overview**, shows connected drives, and searches automatically. Servers already mounted by Finder are included even without a Bonjour advertisement.
+3. Choose a server and choose **Load drives**. Existing Finder SMB sessions are tried first.
 4. Select the drives you want and choose **Connect**.
 5. Connected drives offer **Open**; select them and choose **Eject** to disconnect.
 
@@ -57,15 +57,37 @@ working DNS name rather than assuming multicast Bonjour is forwarded.
 
 ### Remembered accounts
 
-**Load drives**, **Connect all**, and **Change account** use a sign-in sheet.
-Check **Remember this server** to store the validated account in macOS Keychain.
-The account is saved only after listing shares succeeds. Later requests reuse it;
-if it fails, the sign-in sheet opens so you can correct it. Unchecking Remember
-or choosing **Forget saved account** removes the app's stored account.
+**Load drives** and **Connect all** first try an existing SMB session managed by
+macOS. No password is extracted from Finder or copied into app storage. If a
+sign-in sheet is needed, choose **Use Finder** to open macOS sign-in, then return
+and choose **Sign in**. macOS may reuse a saved account or ask you to authenticate;
+reuse depends on the server address, account, session and Keychain access.
 
-Accounts for known mounted aliases are kept together. Passwords never go into
-server/group JSON files. macOS may ask to grant Keychain access, especially for
-ad-hoc signed development builds; production signing gives the app a stable identity.
+You can also enter an account in the app. **Remember account** stores that
+validated account in the app's own Keychain namespace, only after shares can be
+listed. **Forget saved account** removes that app account, not Finder's account.
+Passwords never go into server/group JSON files. Changing a hostname or IP may
+require sign-in again. Saved-drive reconnects without an app account already use
+Finder's normal sign-in flow.
+
+### Safe eject
+
+Eject always uses normal macOS unmounting. Ejecting multiple drives asks for
+confirmation; busy drives remain connected while the batch continues. If an
+eject fails, a sheet shows the drive, a short cause, and detected app/process
+names with PIDs. **Details** contains the macOS message. Close open files and
+choose **Retry**, or open **Activity Monitor** to inspect the named process.
+
+Process lookup uses a bounded, nonrecursive `lsof` filesystem query. It does not
+request administrator access, read file contents, or collect filenames/arguments.
+macOS may hide other users' or system processes; an empty result is not proof
+that no app is using the drive. The app never force-unmounts or closes apps.
+
+### Help
+
+The **?** toolbar button contains selection shortcuts, account behavior, groups,
+VPN guidance and eject help. The **?** button in Add server explains address
+formats. Longer instructions are kept out of the main pages.
 
 ### Saved drives and groups
 

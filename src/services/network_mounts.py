@@ -95,8 +95,13 @@ def eject_volume(volume_id: str) -> tuple[bool, str]:
     volume = next((v for v in list_network_mounts() if v.id == volume_id), None)
     if volume is None:
         return True, ""  # Already disconnected.
-    result = subprocess.run(["/usr/sbin/diskutil", "unmount", volume.mount_point],
-                            capture_output=True, text=True, timeout=20)
+    try:
+        result = subprocess.run(["/usr/sbin/diskutil", "unmount", volume.mount_point],
+                                capture_output=True, text=True, timeout=20)
+    except subprocess.TimeoutExpired:
+        return False, "macOS did not finish ejecting this drive. Check its connection and try again."
+    except OSError:
+        return False, "macOS could not start the eject operation."
     if result.returncode:
         return False, (result.stderr.strip() or result.stdout.strip() or "The drive is in use. Close its files and try again.")
     if any(v.id == volume_id for v in list_network_mounts()):
@@ -110,3 +115,38 @@ def reveal_volume(volume_id: str) -> bool:
         return False
     result = subprocess.run(["/usr/bin/open", volume.mount_point], capture_output=True, timeout=10)
     return result.returncode == 0
+
+
+def parse_open_processes(output):
+    """Parse lsof's process-only fields; never collect filenames or arguments."""
+    processes = {}
+    pid = None
+    for line in output.splitlines():
+        if line.startswith('p') and line[1:].isdigit():
+            pid = int(line[1:])
+        elif line.startswith('c') and pid is not None:
+            name = ''.join(c for c in line[1:] if c.isprintable())[:120]
+            processes[pid] = {'pid': pid, 'name': name or f'Process {pid}'}
+    return sorted(processes.values(), key=lambda p: (p['name'].casefold(), p['pid']))[:30]
+
+
+def eject_diagnostics(volume_id, error):
+    volume = next((v for v in list_network_mounts() if v.id == volume_id), None)
+    result = {'id': volume_id, 'name': volume.name if volume else 'Network drive',
+              'message': str(error)[:1200], 'processes': [], 'limited': True}
+    if volume is None:
+        return result
+    try:
+        # Select a filesystem, not a recursive directory walk (+D). No file names,
+        # command arguments, root access, process termination, or forced unmount.
+        probe = subprocess.run(['/usr/sbin/lsof', '-nP', '-w', '+c', '0', '-Fpc', '+f', '--', volume.mount_point],
+                               capture_output=True, text=True, timeout=4)
+        result['processes'] = parse_open_processes(probe.stdout)
+        result['limited'] = True  # A normal user cannot guarantee visibility into all processes.
+    except (OSError, subprocess.SubprocessError):
+        pass
+    # diskutil can name a dissenter even when lsof cannot see another user's files.
+    match = re.search(r'\bPID\s+(\d+)\b', str(error), re.I)
+    if match and not any(p['pid'] == int(match[1]) for p in result['processes']):
+        result['processes'].append({'pid': int(match[1]), 'name': f'Process {match[1]}'})
+    return result

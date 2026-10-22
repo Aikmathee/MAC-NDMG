@@ -14,6 +14,10 @@ extension RootView {
         return store.selected?.name ?? "Overview"
     }
     @ToolbarContentBuilder var appToolbar: some ToolbarContent {
+        ToolbarItem(placement: .automatic) {
+            Button { store.showingHelp = true } label: { Label("Help", systemImage: "questionmark.circle") }
+                .help("Help")
+        }
         ToolbarItemGroup(placement: .primaryAction) {
             if store.showingGroups {
                 Button { store.editGroup() } label: { Label("New group", systemImage: "plus.rectangle.on.folder") }
@@ -45,8 +49,7 @@ extension RootView {
                 HStack(spacing: 14) {
                     Image(systemName: "square.stack.3d.up").font(.title2).foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: 5) {
-                        Text("Your drives, together").font(.headline)
-                        Text("Save a group to reconnect your workspace in one step.").font(.subheadline).foregroundStyle(.secondary)
+                        Text("No groups").font(.headline)
                     }
                     Spacer()
                 }.padding(20).modifier(ContentCard())

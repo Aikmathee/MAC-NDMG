@@ -39,9 +39,15 @@ def build_smb_uri(username: str, password: str, ip: str, share_name: str) -> str
     """
     Construct a fully-qualified ``smb://`` URI with encoded credentials.
     """
-    encoded_pw = encode_password(password)
-    encoded_user = url_quote(username, safe="")
-    return f"smb://{encoded_user}:{encoded_pw}@{ip}/{url_quote(share_name, safe='')}"
+    if ':' in ip and not ip.startswith('['):
+        ip = f'[{ip}]'
+    credentials = ""
+    if username:
+        credentials = url_quote(username, safe="")
+        if password:
+            credentials += ":" + encode_password(password)
+        credentials += "@"
+    return f"smb://{credentials}{ip}/{url_quote(share_name, safe='')}"
 
 
 def check_mount_status(share: ShareItem) -> MountStatus:
@@ -237,6 +243,8 @@ def open_server_in_finder(
     Open the server in macOS Finder via `open smb://...`.
     This brings up Finder's native 'Select volumes to mount' dialog.
     """
+    if ':' in host_or_ip and not host_or_ip.startswith('['):
+        host_or_ip = f'[{host_or_ip}]'
     if username and password:
         uri = f"smb://{url_quote(username, safe='')}:{encode_password(password)}@{host_or_ip}"
     elif username:
