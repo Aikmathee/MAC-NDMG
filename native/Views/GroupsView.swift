@@ -186,7 +186,8 @@ extension RootView {
             .modifier(NativeScrollEdges())
             .modifier(NativeSafeAreaBar(edge: .top) { groupEditorHeader })
             .modifier(NativeSafeAreaBar(edge: .bottom) { groupEditorActions })
-            .padding(28).frame(width: 490, height: 560).disabled(store.savingGroup)
+            .padding(28).frame(width: 490, height: 560)
+            .background(Color(nsColor: .windowBackgroundColor)).disabled(store.savingGroup)
     }
 
     var groupEditorHeader: some View {

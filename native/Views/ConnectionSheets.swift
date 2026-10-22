@@ -26,7 +26,7 @@ extension RootView {
                 Button(store.authSubmitting ? "Connecting…" : "Continue") { Task { await store.submitAuthentication() } }
                     .buttonStyle(PillStyle(primary: true)).keyboardShortcut(.defaultAction)
             }
-        }.padding(30).frame(width: 420).disabled(store.authSubmitting)
+        }.padding(30).frame(width: 420).background(Color(nsColor: .windowBackgroundColor)).disabled(store.authSubmitting)
             .interactiveDismissDisabled(store.authSubmitting)
     }
     var addSheet: some View {
@@ -48,7 +48,7 @@ extension RootView {
                 .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
             Text("WebDAV uses the macOS sign-in window. FTP and SFTP need a separate client.")
                 .font(.caption).foregroundStyle(.secondary)
-        }.padding(32).frame(width: 460)
+        }.padding(32).frame(width: 460).background(Color(nsColor: .windowBackgroundColor))
     }
 
     var activitySheet: some View {
@@ -69,6 +69,6 @@ extension RootView {
             }
                 .padding(.bottom, 18)
             })
-            .padding(28).frame(width: 480, height: 340)
+            .padding(28).frame(width: 480, height: 340).background(Color(nsColor: .windowBackgroundColor))
     }
 }
