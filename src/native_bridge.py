@@ -7,7 +7,7 @@ import sys
 import subprocess
 from urllib.parse import quote
 from src.models.share_item import HostEntry, ShareItem
-from src.services import config_loader, lan_scanner, mounter, network_mounts, connection_groups, host_identity
+from src.services import config_loader, lan_scanner, mounter, network_mounts, connection_groups, host_identity, drive_recovery
 
 
 def drive_dict(share):
@@ -45,6 +45,14 @@ def library_dict(state, volumes=()):
 def dispatch(request):
     action = request.get("action")
     config = request.get("config")
+    if action == "find_drive":
+        return {"ok": True, "hosts": drive_recovery.find_candidates(request.get("drive_id"))}
+    if action == "relocate_drive":
+        address = request.get("address", "")
+        if not isinstance(address, str) or not address or len(address) > 253 or any(c in address for c in '/@?#\\\n\r\t '):
+            raise ValueError("Enter a valid server address.")
+        state = drive_recovery.relocate(request.get("drive_id"), address)
+        return dict(ok=True, **library_dict(state, network_mounts.list_network_mounts()))
     if action in ("connections", "save_group", "delete_group", "reconnect", "save_endpoint"):
         state = None
         status = None

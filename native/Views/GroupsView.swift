@@ -30,6 +30,13 @@ extension RootView {
                     if store.isConnected(drive) {
                         Label("Connected", systemImage: "checkmark.circle.fill").font(.system(size: 11)).foregroundStyle(.green)
                     } else {
+                        if drive.connectionProtocol != "webdav" {
+                            Button("Find") {
+                                store.unavailableDrives = [drive]
+                                store.showingRecovery = true
+                                Task { await store.findDrive(drive) }
+                            }.buttonStyle(FramedButtonStyle()).help("Find this share in the LAN")
+                        }
                         Button("Connect") { Task { await store.connectSaved([drive], label: drive.name) } }
                             .buttonStyle(PillStyle()).disabled(store.working)
                     }

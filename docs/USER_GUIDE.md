@@ -155,3 +155,11 @@ Saved destinations appear in **Groups** alongside previously connected drives, c
 DNS supplies an address, not a file-sharing service. Use SMB over a VPN rather than exposing port 445 publicly. FTP, FTPS and SFTP are not currently mounted by this app; use a dedicated client or expose a supported SMB/WebDAV service through your VPN. No VPN subscription or server setup is included in the app.
 
 References: [Tailscale remote file servers](https://tailscale.com/docs/use-cases/personal-or-at-home-use/access-nas-media-file-servers), [MagicDNS](https://tailscale.com/docs/features/magicdns), [Apple WebDAV connections](https://support.apple.com/en-hk/guide/mac-help/mchlp1546/mac).
+
+## Drives moved between servers
+
+Connecting a group now lists drives that did not connect, including requests still waiting in Finder. A disconnected disk may be unplugged, offline, require sign-in, or have moved. Other successfully connected drives stay connected.
+
+Choose **Find in LAN**, or **Find** beside a disconnected saved drive in Groups. Search checks discovered SMB servers using existing macOS sessions and lists exact share-name matches. It does not send an old server's saved password to other servers. A server requiring sign-in may be missing from results: sign in through Finder and search again.
+
+Check that the candidate really is your disk, then choose **Use this location**. The saved location is updated, the old address is retained in local history, and group memberships are preserved. Connect again from Groups. Multiple matches are never chosen automatically. SMB share names do not provide a universal physical disk identifier, so the app cannot guarantee identity or find unplugged disks, renamed shares, undiscoverable servers, or shares you cannot access.

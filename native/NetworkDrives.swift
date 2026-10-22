@@ -173,6 +173,41 @@ struct AuthenticatedServer {
     @Published var showingEjectConfirmation = false
     @Published var pendingEjectVolumes: [MountedVolume]?
     @Published var showingHelp = false
+    @Published var unavailableDrives: [SavedDrive] = []
+    @Published var showingRecovery = false
+    @Published var recoveryCandidates: [Server] = []
+    @Published var recoveryDrive: SavedDrive?
+    @Published var recoverySearching = false
+    @Published var recoveryMessage = ""
+
+    func findDrive(_ drive: SavedDrive) async {
+        guard !recoverySearching else { return }
+        recoverySearching = true
+        recoveryDrive = drive
+        recoveryCandidates = []
+        recoveryMessage = "Searching the LAN…"
+        defer { recoverySearching = false }
+        do {
+            let response = try await Service.request(["action": "find_drive", "drive_id": drive.id])
+            recoveryCandidates = response.hosts ?? []
+            recoveryMessage = response.ok ? (recoveryCandidates.isEmpty ? "No matching share found. The drive may be unplugged, offline, or require Finder sign-in." : "Same share name found. Confirm the disk on the selected server before updating its location.") : (response.error ?? "Search failed.")
+        } catch { recoveryMessage = error.localizedDescription }
+    }
+
+    func useLocation(_ server: Server) async {
+        guard let drive = recoveryDrive, !recoverySearching else { return }
+        recoverySearching = true
+        defer { recoverySearching = false }
+        do {
+            let response = try await Service.request(["action": "relocate_drive", "drive_id": drive.id, "address": server.address])
+            guard response.ok else { recoveryMessage = response.error ?? "Could not update location."; return }
+            applyLibrary(response)
+            unavailableDrives.removeAll { $0.id == drive.id }
+            recoveryCandidates = []
+            recoveryDrive = nil
+            recoveryMessage = "Location updated. Group membership was kept. Close this window and connect again."
+        } catch { recoveryMessage = error.localizedDescription }
+    }
     @Published var ejectProblem: EjectProblem?
     var pendingEjectIDs = Set<String>()
     @Published var servers: [Server] = []
@@ -552,6 +587,7 @@ struct AuthenticatedServer {
             Task { await refreshMounted() }
         }
         var connected = 0, waiting = 0, failed = 0, processed = 0
+        var unresolved: [SavedDrive] = []
         for drive in pending {
             if stopConnecting { break }
             note("\(label): \(processed + 1) of \(pending.count)…")
@@ -563,20 +599,27 @@ struct AuthenticatedServer {
                 let response = try await Service.request(payload)
                 if let volumes = response.volumes { applyMounted(volumes) }
                 if response.ok && response.connectionState == "connected" { connected += 1 }
-                else if response.ok && response.connectionState == "waiting" { waiting += 1 }
+                else if response.ok && response.connectionState == "waiting" { waiting += 1; unresolved.append(drive) }
                 else {
                     failed += 1
+                    unresolved.append(drive)
                     note("Could not connect to \(drive.name): \(response.error ?? "Unknown error")")
                 }
             } catch {
                 failed += 1
+                unresolved.append(drive)
                 note("Could not connect to \(drive.name): \(error.localizedDescription)")
             }
             processed += 1
         }
         let result = "\(connected) connected" + (waiting > 0 ? " · \(waiting) waiting in Finder" : "") + (failed > 0 ? " · \(failed) failed" : "")
         note((stopConnecting ? "Stopped · " : "") + result)
-        if failed > 0 { error = "Some drives could not be opened. Check the network and see Activity for details." }
+        if !unresolved.isEmpty {
+            unavailableDrives = unresolved.filter { !isConnected($0) }
+            recoveryCandidates = []; recoveryDrive = nil
+            recoveryMessage = result + ". Finder may still be waiting for sign-in."
+            showingRecovery = !unavailableDrives.isEmpty
+        }
     }
     func monitorMounts() async {
         while !Task.isCancelled {
@@ -835,6 +878,7 @@ struct RootView: View {
         .sheet(isPresented: $store.showingAdd) { addSheet }
         .sheet(isPresented: $store.showingActivity) { activitySheet }
         .sheet(isPresented: $store.showingHelp) { appHelp }
+        .sheet(isPresented: $store.showingRecovery) { driveRecoverySheet }
         .confirmationDialog("Eject \(store.pendingEjectVolumes?.count ?? 0) drives?", isPresented: $store.showingEjectConfirmation) {
             Button("Eject") {
                 let volumes = store.pendingEjectVolumes ?? []

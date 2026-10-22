@@ -91,6 +91,8 @@ def remember_mounts(volumes):
         for volume in volumes:
             target = target_for_volume(volume)
             if target and target['id'] not in ids:
+                if any(d.get('previous_addresses') and is_connected(d, [volume]) for d in state['drives']):
+                    continue  # Relocated drives keep their original group identifier.
                 if (volume.filesystem == 'smbfs' and host_identity.is_ip(volume.address)
                         and any(not host_identity.is_ip(d['address']) and is_connected(d, [volume])
                                 for d in state['drives'])):
