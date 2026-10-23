@@ -35,9 +35,30 @@ def connected_hosts(volumes):
             if (value := discovered_dict(host))]
 
 
+def remembered_hosts(state):
+    """Keep known SMB destinations visible independently of discovery success."""
+    result = {}
+    for drive in state['drives']:
+        if drive.get('protocol') == 'webdav':
+            continue
+        address = drive.get('address', '')
+        # Custom-port URLs need their original endpoint flow, not a portless server.
+        if drive.get('url'):
+            from urllib.parse import urlsplit
+            if urlsplit(drive['url']).port not in (None, 445):
+                continue
+        if not (host_identity.hostname(address) or host_identity.is_ip(address)
+                or host_identity.bonjour_service_address(address)):
+            continue
+        key = network_mounts._host_key(address)
+        result.setdefault(key, {'id': address.lower(), 'name': drive.get('server_name') or address,
+                               'address': address, 'saved': True, 'source': 'history', 'drives': []})
+    return list(result.values())
+
+
 def library_dict(state, volumes=()):
     # Live matching metadata is never written to history or used as a destination.
-    return {"remembered": [dict(drive, mounted_ids=[v.id for v in volumes
+    return {"hosts": remembered_hosts(state), "remembered": [dict(drive, mounted_ids=[v.id for v in volumes
                 if connection_groups.is_connected(drive, [v])]) for drive in state["drives"]],
             "groups": state["groups"]}
 
@@ -100,7 +121,9 @@ def dispatch(request):
                                            "processes": [], "limited": True}
         try:
             state = connection_groups.remember_mounts(volumes)
-            result.update(library_dict(state, volumes or ()))
+            library = library_dict(state, volumes or ())
+            library["hosts"] = result["hosts"] + library["hosts"]
+            result.update(library)
         except (OSError, ValueError, KeyError, TypeError):
             # A damaged history file must not hide live drives or disable eject.
             result["storage_error"] = "Saved connections could not be read. Your connected drives are still available."

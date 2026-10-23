@@ -163,3 +163,5 @@ Connecting a group now lists drives that did not connect, including requests sti
 Choose **Find in LAN**, or **Find** beside a disconnected saved drive in Groups. Search checks discovered SMB servers using existing macOS sessions and lists exact share-name matches. It does not send an old server's saved password to other servers. A server requiring sign-in may be missing from results: sign in through Finder and search again.
 
 Check that the candidate really is your disk, then choose **Use this location**. The saved location is updated, the old address is retained in local history, and group memberships are preserved. Connect again from Groups. Multiple matches are never chosen automatically. SMB share names do not provide a universal physical disk identifier, so the app cannot guarantee identity or find unplugged disks, renamed shares, undiscoverable servers, or shares you cannot access.
+
+Servers used by saved SMB drives remain visible after disconnecting, even when LAN discovery cannot find them. A saved server is not proof that it is online; connecting still requires its hostname to resolve and SMB to be available.

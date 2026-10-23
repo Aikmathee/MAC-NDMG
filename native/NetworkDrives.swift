@@ -522,6 +522,7 @@ struct AuthenticatedServer {
     }
     func applyLibrary(_ response: Response) {
         libraryError = response.storageError
+        merge(response.hosts ?? [])
         if let values = response.remembered { rememberedDrives = values }
         if let values = response.groups { groups = values }
     }
