@@ -3,6 +3,7 @@ from functools import lru_cache
 import ipaddress
 import re
 import socket
+import subprocess
 from urllib.parse import quote, unquote
 
 
@@ -36,6 +37,20 @@ def current_addresses(host):
     try:
         return tuple(sorted({item[4][0].lower() for item in socket.getaddrinfo(host, 445, type=socket.SOCK_STREAM)}))
     except OSError:
+        return netbios_addresses(host)
+
+
+def netbios_addresses(host):
+    """Resolve a real short SMB name using macOS NetBIOS, never a guessed IP."""
+    if not hostname(host) or '.' in host or len(host) > 15:
+        return ()
+    try:
+        result = subprocess.run(['/usr/bin/smbutil', 'lookup', host], capture_output=True, text=True, timeout=2)
+        if result.returncode:
+            return ()
+        values = re.findall(r'^IP address of [^:]+:\s*(\S+)\s*$', result.stdout, re.M)
+        return tuple(sorted({v for v in values if is_ip(v)}))
+    except (OSError, subprocess.SubprocessError):
         return ()
 
 

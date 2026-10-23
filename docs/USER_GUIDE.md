@@ -165,3 +165,5 @@ Choose **Find in LAN**, or **Find** beside a disconnected saved drive in Groups.
 Check that the candidate really is your disk, then choose **Use this location**. The saved location is updated, the old address is retained in local history, and group memberships are preserved. Connect again from Groups. Multiple matches are never chosen automatically. SMB share names do not provide a universal physical disk identifier, so the app cannot guarantee identity or find unplugged disks, renamed shares, undiscoverable servers, or shares you cannot access.
 
 Servers used by saved SMB drives remain visible after disconnecting, even when LAN discovery cannot find them. A saved server is not proof that it is online; connecting still requires its hostname to resolve and SMB to be available.
+
+Discovery also reads NetBIOS server names from SMB hosts. This covers machines Finder can show even when they do not advertise Bonjour and have no DNS record. Short NetBIOS names are resolved on the current network; the app does not pin their old IP addresses. Networks that block NetBIOS may require Bonjour, DNS, or manually adding an address.

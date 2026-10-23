@@ -157,6 +157,28 @@ def scan_subnet_fast(base_subnet: Optional[str] = None) -> List[str]:
     return sorted(found, key=lambda x: [int(p) for p in x.split(".")])
 
 
+def resolve_subnet_host(ip):
+    """Read the server's SMB name, including machines absent from Bonjour/DNS."""
+    try:
+        hostname = socket.gethostbyaddr(ip)[0].rstrip('.')
+        if host_identity.hostname(hostname) and ip in host_identity.current_addresses(hostname):
+            return DiscoveredHost(hostname, hostname, ip, 'network')
+    except OSError:
+        pass
+    try:
+        result = subprocess.run(['/usr/bin/smbutil', 'status', ip], capture_output=True, text=True, timeout=2)
+        match = re.search(r'^Server:\s*(.+?)\s*$', result.stdout, re.M) if result.returncode == 0 else None
+        name = match.group(1).strip() if match else ''
+        # Keep the friendly name even if broadcast lookup is blocked. Use the
+        # hostname as destination only after confirming it resolves to this IP.
+        if host_identity.hostname(name) and not host_identity.is_ip(name):
+            target = name.lower() if ip in host_identity.current_addresses(name.lower()) else ip
+            return DiscoveredHost(name, target, ip, 'netbios')
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return DiscoveredHost(f'SMB Host ({ip})', ip, ip)
+
+
 def scan_all_network_hosts() -> List[DiscoveredHost]:
     """
     Combines Bonjour mDNS discovery with subnet IP scanning for maximum coverage.
@@ -167,22 +189,9 @@ def scan_all_network_hosts() -> List[DiscoveredHost]:
     # Supplement with subnet scan for non-Bonjour SMB devices (e.g. Linux/Windows NAS)
     try:
         subnet_ips = scan_subnet_fast()
-        for ip in subnet_ips:
-            if ip not in known_ips:
-                # Try reverse lookup
-                try:
-                    hostname = socket.gethostbyaddr(ip)[0].rstrip('.')
-                    if ip not in host_identity.current_addresses(hostname):
-                        hostname = ip
-                except Exception:
-                    hostname = ip
-                bonjour_hosts.append(
-                    DiscoveredHost(
-                        name=f"SMB Host ({ip})",
-                        host=hostname,
-                        ip=ip,
-                    )
-                )
+        candidates = [ip for ip in subnet_ips if ip not in known_ips]
+        with ThreadPoolExecutor(max_workers=12) as pool:
+            bonjour_hosts.extend(pool.map(resolve_subnet_host, candidates))
     except Exception as exc:
         log.debug("Subnet scan supplement error: %s", exc)
 
