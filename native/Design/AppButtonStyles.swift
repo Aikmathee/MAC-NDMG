@@ -15,7 +15,7 @@ struct PillStyle: ButtonStyle {
             .padding(.vertical, large ? 9 : 6)
             .frame(minWidth: 32, minHeight: large ? 36 : 30)
             .foregroundStyle(primary ? Color.white : Color.primary)
-            .background { surface }
+            .modifier(ActionGlassSurface(primary: primary))
             .overlay {
                 Capsule().strokeBorder(Color.primary.opacity(enabled && hovering ? 0.24 : 0.10), lineWidth: 1)
                     .allowsHitTesting(false)
@@ -26,23 +26,25 @@ struct PillStyle: ButtonStyle {
             .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hovering)
     }
 
-    @ViewBuilder private var surface: some View {
+}
+
+/// Apply glass to the padded label itself, so its own text is not sampled as
+/// backdrop content when several controls share a GlassEffectContainer.
+struct ActionGlassSurface: ViewModifier {
+    var primary: Bool
+    @ViewBuilder func body(content: Content) -> some View {
         #if MODERN_GLASS
         if #available(macOS 26, *) {
-            if primary {
-                Capsule().fill(.clear).glassEffect(.regular.tint(.accentColor).interactive(), in: Capsule())
-            } else {
-                Capsule().fill(.clear).glassEffect(.regular.interactive(), in: Capsule())
-            }
-        } else { fallback }
+            if primary { content.glassEffect(.regular.tint(.accentColor).interactive(), in: Capsule()) }
+            else { content.glassEffect(.regular.interactive(), in: Capsule()) }
+        } else { fallback(content) }
         #else
-        fallback
+        fallback(content)
         #endif
     }
-
-    @ViewBuilder private var fallback: some View {
-        if primary { Capsule().fill(Color.accentColor) }
-        else { Capsule().fill(.regularMaterial) }
+    @ViewBuilder private func fallback(_ content: Content) -> some View {
+        if primary { content.background(Color.accentColor, in: Capsule()) }
+        else { content.background(.regularMaterial, in: Capsule()) }
     }
 }
 
