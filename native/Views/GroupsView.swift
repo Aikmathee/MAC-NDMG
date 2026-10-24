@@ -109,7 +109,7 @@ extension RootView {
                     Divider()
                     Button("Edit group…") { store.editGroup(group) }
                     Button("Delete group", role: .destructive) { store.pendingDeleteGroup = group }
-                } label: { Image(systemName: "ellipsis").frame(width: 28, height: 28) }
+                } label: { Image(systemName: "ellipsis").frame(width: 32, height: 32).contentShape(Rectangle()) }
                     .menuStyle(.borderlessButton).fixedSize().disabled(store.working)
                     .accessibilityLabel("Options for \(group.name)")
             }

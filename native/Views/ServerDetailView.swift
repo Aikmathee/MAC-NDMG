@@ -53,7 +53,7 @@ extension RootView {
                     Button("Change account…") { Task { await store.browseServer(forcePrompt: true) } }
                     Button("Forget saved account") { Task { await store.forgetAccount(server) } }
                     Button("Use Finder") { Task { await store.finder() } }
-                } label: { Image(systemName: "ellipsis").padding(10) }.menuStyle(.borderlessButton).fixedSize().disabled(store.working)
+                } label: { Image(systemName: "ellipsis").frame(width: 32, height: 32).contentShape(Rectangle()) }.menuStyle(.borderlessButton).fixedSize().disabled(store.working)
             }
             GlassControlGroup {
             HStack(spacing: 12) {
