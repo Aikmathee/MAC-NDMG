@@ -124,7 +124,7 @@ extension RootView {
                         Text("\(drives.count) \(drives.count == 1 ? "drive" : "drives")")
                             .font(.system(size: 12, weight: .medium))
                     }.foregroundStyle(.secondary).padding(.vertical, 8).contentShape(Rectangle())
-                }.buttonStyle(.plain)
+                }.buttonStyle(FramedButtonStyle())
                     .accessibilityLabel("\(expanded ? "Hide" : "Show") drives in \(group.name)")
                     .accessibilityValue(expanded ? "Expanded" : "Collapsed")
                 Spacer(minLength: 8)

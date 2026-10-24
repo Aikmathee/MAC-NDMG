@@ -21,7 +21,7 @@ extension RootView {
                     } else {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 14)], spacing: 14) {
                             ForEach(store.visible) { server in
-                                Button { store.serverClicked(server) } label: { serverCard(server) }
+                                Button { store.serverClicked(server) } label: { serverCard(server).contentShape(RoundedRectangle(cornerRadius: 18)) }
                                     .buttonStyle(.plain)
                                     .accessibilityLabel("\(server.name), \(server.address)")
                                     .contextMenu { serverContext(store.selectedServerIDs.contains(server.id) ? store.selectedServerIDs : [server.id]) }

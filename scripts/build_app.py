@@ -12,7 +12,7 @@ import platform
 import plistlib
 from pathlib import Path
 
-APP_NAME = "Network Drive Manager"
+APP_NAME = "MacNDMG"
 BUNDLE_ID = "com.studio.network-drive-manager"
 
 
@@ -63,7 +63,7 @@ def build_native(require_modern_sdk=False):
     subprocess.check_call([str(icon_tool.resolve()), "build/AppIcon.iconset"])
     subprocess.check_call(["iconutil", "-c", "icns", "build/AppIcon.iconset", "-o", str(resources / "AppIcon.icns")])
     info = {
-        "CFBundleName": "Network Drives", "CFBundleDisplayName": "Network Drives",
+        "CFBundleName": "MacNDMG", "CFBundleDisplayName": "MacNDMG",
         "CFBundleExecutable": APP_NAME, "CFBundleIdentifier": BUNDLE_ID,
         "CFBundlePackageType": "APPL", "CFBundleShortVersionString": Path("VERSION").read_text().strip(),
         "CFBundleVersion": Path("VERSION").read_text().strip(), "LSMinimumSystemVersion": "13.0",

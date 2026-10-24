@@ -1,6 +1,6 @@
 <div align="center">
 
-# Network Drives for Mac
+# MacNDMG
 
 Connect your network drives. Keep your workspace simple.
 
@@ -18,7 +18,7 @@ macOS 13 or later. Python is included — no Terminal or developer tools needed.
 ## ดาวน์โหลดและเริ่มใช้งาน
 
 1. กดปุ่มดาวน์โหลดด้านบน: **Apple Silicon** สำหรับชิป M1 ขึ้นไป หรือ **Intel** สำหรับ Mac รุ่น Intel (ดูได้ที่  → About This Mac)
-2. เปิดไฟล์ `.dmg` แล้วลาก **Network Drive Manager** ไปยัง **Applications**
+2. เปิดไฟล์ `.dmg` แล้วลาก **MacNDMG** ไปยัง **Applications**
 3. เปิดแอพ เลือกเครื่องหรือกด **Add server** แล้วเข้าสู่ระบบเพื่อเลือกไดรฟ์
 
 **การเปิดครั้งแรก:** เวอร์ชันนี้ยังไม่ได้รับการ notarize จาก Apple หาก macOS บล็อกแอพ ให้ตรวจว่าดาวน์โหลดจาก Release ของโปรเจกต์นี้ แล้วใช้ **System Settings → Privacy & Security → Open Anyway** ตาม [คำแนะนำของ Apple](https://support.apple.com/en-au/102445) ไม่ต้องปิด Gatekeeper หรือรันคำสั่งใน Terminal

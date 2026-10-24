@@ -906,7 +906,8 @@ struct RootView: View {
                         }
                         Spacer(minLength: 0)
                         if server.saved { Image(systemName: "star.fill").font(.system(size: 9)).foregroundStyle(.secondary) }
-                    }.padding(.vertical, 7).tag(server.id)
+                    }.padding(.vertical, 7).frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle()).tag(server.id)
                 }
             }
         }.listStyle(.sidebar).scrollContentBackground(.hidden)
@@ -1018,14 +1019,14 @@ struct RootView: View {
             HStack(spacing: 10) {
                 Image(systemName: "externaldrive.connected.to.line.below")
                     .font(.system(size: 23, weight: .medium)).foregroundStyle(.blue)
-                Text("Network Drives").font(.system(size: 15, weight: .semibold))
+                Text("MacNDMG").font(.system(size: 15, weight: .semibold))
             }.padding(.top, 20)
             Button { store.choose(nil) } label: {
                 Label("Overview", systemImage: "square.grid.2x2")
                     .font(.system(size: 13, weight: .medium))
                     .frame(maxWidth: .infinity, alignment: .leading).padding(12)
-                    .background(store.selectedServerIDs.isEmpty && !store.showingConnected && !store.showingGroups ? Color.blue.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 12))
-            }.buttonStyle(.plain).disabled(store.working || store.loading)
+                    .contentShape(RoundedRectangle(cornerRadius: 12))
+            }.buttonStyle(NavigationGlassStyle(selected: store.selectedServerIDs.isEmpty && !store.showingConnected && !store.showingGroups)).disabled(store.working || store.loading)
             Button { store.showConnected() } label: {
                 HStack {
                     Label("Connected", systemImage: "externaldrive.badge.checkmark")
@@ -1033,16 +1034,16 @@ struct RootView: View {
                     Text("\(store.mountedVolumes.count)").font(.system(size: 11, weight: .medium))
                         .padding(.horizontal, 7).padding(.vertical, 3).background(.quaternary, in: Capsule())
                 }.font(.system(size: 13, weight: .medium)).padding(12)
-                    .background(store.showingConnected ? Color.blue.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 12))
-            }.buttonStyle(.plain).disabled(store.working || store.loading)
+                    .contentShape(RoundedRectangle(cornerRadius: 12))
+            }.buttonStyle(NavigationGlassStyle(selected: store.showingConnected)).disabled(store.working || store.loading)
             Button { store.showGroups() } label: {
                 HStack {
                     Label("Groups", systemImage: "square.stack.3d.up")
                     Spacer()
                     if !store.groups.isEmpty { Text("\(store.groups.count)").font(.system(size: 11)) }
                 }.font(.system(size: 13, weight: .medium)).padding(12)
-                    .background(store.showingGroups ? Color.blue.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 12))
-            }.buttonStyle(.plain).disabled(store.working || store.loading)
+                    .contentShape(RoundedRectangle(cornerRadius: 12))
+            }.buttonStyle(NavigationGlassStyle(selected: store.showingGroups)).disabled(store.working || store.loading)
         }.padding(.horizontal, 16).padding(.bottom, 12)
     }
 
@@ -1100,7 +1101,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         if let window = NSApp.windows.first {
-            window.title = "Network Drives"
+            window.title = "MacNDMG"
             window.titlebarAppearsTransparent = true
             window.backgroundColor = .windowBackgroundColor
         }
@@ -1111,7 +1112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 @main struct NetworkDrivesApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
     var body: some Scene {
-        WindowGroup("Network Drives") { RootView() }
+        WindowGroup("MacNDMG") { RootView() }
             .defaultSize(width: 1060, height: 780)
             .windowStyle(.titleBar)
             .windowToolbarStyle(.unified)

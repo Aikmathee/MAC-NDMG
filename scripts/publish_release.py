@@ -52,7 +52,7 @@ def main():
     if release and not release['draft']:
         raise SystemExit('This version is already published. Use a new version; do not overwrite downloads.')
     if release is None:
-        release = api('POST', base + '/releases', {'tag_name': tag, 'name': f'Network Drives {version}',
+        release = api('POST', base + '/releases', {'tag_name': tag, 'name': f'MacNDMG {version}',
                        'body': notes, 'draft': True, 'prerelease': False})
     release_url = base + f"/releases/{release['id']}"
     existing = api('GET', release_url + '/assets?per_page=100')

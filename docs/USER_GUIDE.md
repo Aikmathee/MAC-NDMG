@@ -1,4 +1,4 @@
-# Network Drives for Mac
+# MacNDMG
 
 A native macOS app for finding servers and connecting to multiple SMB shared
 drives. SwiftUI and AppKit provide the interface; the bundled Python service

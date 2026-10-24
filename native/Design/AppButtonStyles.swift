@@ -13,7 +13,7 @@ struct PillStyle: PrimitiveButtonStyle {
                 #if MODERN_GLASS
                 if #available(macOS 26, *) {
                     if primary { Button(configuration).buttonStyle(.glassProminent) }
-                    else { Button(configuration).buttonStyle(.bordered).tint(.gray) }
+                    else { Button(configuration).buttonStyle(.glass) }
                 } else { fallback(configuration) }
                 #else
                 fallback(configuration)
@@ -30,6 +30,47 @@ struct PillStyle: PrimitiveButtonStyle {
 /// Small content actions have a visible native bezel in every appearance.
 struct FramedButtonStyle: PrimitiveButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        Button(configuration).buttonStyle(.bordered).controlSize(.regular).tint(.gray)
+        Group {
+            #if MODERN_GLASS
+            if #available(macOS 26, *) {
+                Button(configuration).buttonStyle(.glass)
+            } else { Button(configuration).buttonStyle(.bordered).tint(.gray) }
+            #else
+            Button(configuration).buttonStyle(.bordered).tint(.gray)
+            #endif
+        }.controlSize(.regular)
+    }
+}
+
+/// Give the whole navigation row one hit region, including its empty space.
+struct NavigationGlassStyle: ButtonStyle {
+    var selected = false
+    @State private var hovering = false
+    @Environment(\.isEnabled) private var enabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+            .contentShape(RoundedRectangle(cornerRadius: 12))
+            .background { surface(pressed: configuration.isPressed) }
+            .contentShape(RoundedRectangle(cornerRadius: 12))
+            .onHover { hovering = $0 }
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: hovering)
+    }
+
+    @ViewBuilder private func surface(pressed: Bool) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 12)
+        if enabled && (hovering || pressed) {
+            #if MODERN_GLASS
+            if #available(macOS 26, *) {
+                shape.fill(.clear).glassEffect(.regular.interactive(), in: shape)
+            } else { shape.fill(.regularMaterial) }
+            #else
+            shape.fill(.regularMaterial)
+            #endif
+        } else if selected {
+            shape.fill(Color.accentColor.opacity(0.16))
+        }
     }
 }

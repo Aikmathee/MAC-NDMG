@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parent.parent
-APP = ROOT / 'dist/Network Drive Manager.app'
+APP = ROOT / 'dist/MacNDMG.app'
 
 
 def main():

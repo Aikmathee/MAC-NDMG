@@ -33,7 +33,7 @@ enum CredentialVault {
         if updated == errSecItemNotFound {
             var item = attributes
             item[kSecValueData as String] = data
-            item[kSecAttrLabel as String] = "Network Drives · \(address)"
+            item[kSecAttrLabel as String] = "MacNDMG · \(address)"
             let added = SecItemAdd(item as CFDictionary, nil)
             guard added == errSecSuccess else { throw VaultError(status: added) }
         } else if updated != errSecSuccess { throw VaultError(status: updated) }
