@@ -138,18 +138,12 @@ struct Service {
                 do {
                     guard let root = Bundle.main.resourceURL else { throw ServiceError.missing }
                     let executable = root.appendingPathComponent("service/ndmg-service")
-                    let process = Process()
-                    process.executableURL = executable
-                    let input = Pipe(), output = Pipe()
-                    process.standardInput = input
-                    process.standardOutput = output
-                    process.standardError = FileHandle.nullDevice
-                    try process.run()
-                    input.fileHandleForWriting.write(encoded + Data([10]))
-                    try input.fileHandleForWriting.close()
-                    let data = output.fileHandleForReading.readDataToEndOfFile()
-                    process.waitUntilExit()
-                    let result = try JSONDecoder().decode(Response.self, from: data)
+                    let action = payload["action"] as? String ?? ""
+                    let timeout: TimeInterval = action == "find_drive" ? 180 : (action == "scan" ? 90 : 45)
+                    let data = try ServiceProcess.run(executable: executable, input: encoded + Data([10]), timeout: timeout)
+                    let result: Response
+                    do { result = try JSONDecoder().decode(Response.self, from: data) }
+                    catch { throw ServiceProcess.Failure.invalidResponse }
                     continuation.resume(returning: result)
                 } catch {
                     continuation.resume(throwing: error)
@@ -613,12 +607,13 @@ struct AuthenticatedServer {
             }
             processed += 1
         }
+        if stopConnecting { unresolved.append(contentsOf: pending.dropFirst(processed)) }
         let result = "\(connected) connected" + (waiting > 0 ? " · \(waiting) waiting in Finder" : "") + (failed > 0 ? " · \(failed) failed" : "")
         note((stopConnecting ? "Stopped · " : "") + result)
         if !unresolved.isEmpty {
             unavailableDrives = unresolved.filter { !isConnected($0) }
             recoveryCandidates = []; recoveryDrive = nil
-            recoveryMessage = result + ". Finder may still be waiting for sign-in."
+            recoveryMessage = result + (waiting > 0 ? ". Finder may still be waiting for sign-in." : "") + (stopConnecting ? ". Remaining drives were not attempted." : "")
             showingRecovery = !unavailableDrives.isEmpty
         }
     }

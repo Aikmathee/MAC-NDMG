@@ -167,3 +167,9 @@ Check that the candidate really is your disk, then choose **Use this location**.
 Servers used by saved SMB drives remain visible after disconnecting, even when LAN discovery cannot find them. A saved server is not proof that it is online; connecting still requires its hostname to resolve and SMB to be available.
 
 Discovery also reads NetBIOS server names from SMB hosts. This covers machines Finder can show even when they do not advertise Bonjour and have no DNS record. Short NetBIOS names are resolved on the current network; the app does not pin their old IP addresses. Networks that block NetBIOS may require Bonjour, DNS, or manually adding an address.
+
+## Slow or disconnected networks
+
+Connection-service requests have time limits: 45 seconds for regular operations, 90 seconds for discovery and 180 seconds for finding a moved share. If a request times out, check the network or VPN and try again. A timeout does not guarantee macOS cancelled a mount or unmount; check the Connected page, which refreshes from the actual mount table. MacNDMG does not force an unmount or quit other apps.
+
+Stopping a group shows both unresolved and unattempted drives. Successfully connected drives stay connected.
