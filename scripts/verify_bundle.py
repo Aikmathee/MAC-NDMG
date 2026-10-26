@@ -15,9 +15,11 @@ APP = ROOT / 'dist/MacNDMG.app'
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--require-modern-sdk", action="store_true")
+    parser.add_argument("--app", type=Path, default=APP)
     args = parser.parse_args()
-    subprocess.run(['codesign', '--verify', '--deep', '--strict', str(APP)], check=True)
-    with (APP / 'Contents/Info.plist').open('rb') as handle:
+    app = args.app.resolve()
+    subprocess.run(['codesign', '--verify', '--deep', '--strict', str(app)], check=True)
+    with (app / 'Contents/Info.plist').open('rb') as handle:
         info = plistlib.load(handle)
     assert info['CFBundleShortVersionString'] == (ROOT / 'VERSION').read_text().strip()
     if args.require_modern_sdk:
@@ -25,7 +27,7 @@ def main():
         assert int(info['NDMGSDKVersion'].split('.')[0]) >= 26
     with tempfile.TemporaryDirectory(prefix='ndmg-verify-') as folder:
         env = dict(os.environ, HOME=folder)
-        executable = APP / 'Contents/Resources/service/ndmg-service'
+        executable = app / 'Contents/Resources/service/ndmg-service'
         for action, field in [('saved', 'hosts'), ('connections', 'remembered')]:
             result = subprocess.run([str(executable)], input=json.dumps({'action': action}) + '\n',
                                     text=True, capture_output=True, env=env, timeout=20, check=True)

@@ -20,3 +20,7 @@ Main branch pushes and pull requests build and test without publishing. Manual w
 ## Signing
 
 The current pipeline uses ad-hoc signing and clearly labels the release as not notarized. A future Developer ID signing setup needs an Apple Developer account, a signing certificate and notarization credentials supplied as GitHub Actions secrets. They must never be committed. No signing credentials are currently configured.
+
+## Developer ID and notarized builds
+
+See [NOTARIZATION.md](NOTARIZATION.md) for read-only preflight, signing a separate copy, Apple submission and verified packaging. Signing/notarization are not enabled automatically by the normal release workflow. See [NETWORK_VALIDATION.md](NETWORK_VALIDATION.md) for controlled test coverage and real-network validation still required.
