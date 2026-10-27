@@ -60,8 +60,13 @@ import SwiftUI
                 return
             }
             if remote > installed {
-                available = AvailableUpdate(version: remote.text)
-                status = "MacNDMG \(remote.text) is available."
+                let title = release.name.flatMap { name -> String? in
+                    guard name.hasPrefix("MacNDMG "), name.count <= 80,
+                          !name.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else { return nil }
+                    return name
+                }
+                available = AvailableUpdate(version: remote.text, displayName: title)
+                status = "\(available!.title) is available."
                 if manual || UpdatePolicy.due(last: defaults.object(forKey: UpdatePolicy.noticeKey) as? Date,
                                               now: now, days: intervalDays) {
                     defaults.set(now, forKey: UpdatePolicy.noticeKey)

@@ -19,6 +19,7 @@ struct GitHubRelease: Decodable {
         let state: String
         let size: Int
     }
+    var name: String? = nil
     let tag_name: String
     let draft: Bool
     let prerelease: Bool
@@ -37,6 +38,8 @@ struct GitHubRelease: Decodable {
 
 struct AvailableUpdate: Equatable {
     let version: String
+    var displayName: String? = nil
+    var title: String { displayName ?? "MacNDMG \(version)" }
     var releaseURL: URL { URL(string: "https://github.com/Aikmathee/MAC-NDMG/releases/tag/v\(version)")! }
 }
 

@@ -825,6 +825,7 @@ struct RootView: View {
     @StateObject var store = DriveStore()
     @StateObject var updates = UpdateStore()
     @State var showingUpdates = false
+    @State var showingAbout = false
     @Environment(\.openURL) var openURL
     @Environment(\.accessibilityReduceMotion) var reduceMotion
     @State var columnVisibility: NavigationSplitViewVisibility = .all
@@ -879,6 +880,7 @@ struct RootView: View {
         } message: { Text("This removes the saved group. Its drives stay connected.") }
         .sheet(isPresented: $store.showingAdd) { addSheet }
         .sheet(isPresented: $store.showingActivity) { activitySheet }
+        .sheet(isPresented: $showingAbout) { aboutSheet }
         .sheet(isPresented: $showingUpdates) { updatesSheet }
         .sheet(isPresented: $store.showingHelp) { appHelp }
         .sheet(isPresented: $store.showingRecovery) { driveRecoverySheet }
@@ -1077,6 +1079,7 @@ struct RootView: View {
                 }.font(.system(size: 11)).padding(.horizontal, 4)
             }.menuStyle(.borderlessButton).fixedSize(horizontal: false, vertical: true)
                 .accessibilityLabel("Appearance, \(appearanceName)")
+            supportMenu
         }.padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 18)
     }
 

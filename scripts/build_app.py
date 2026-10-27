@@ -68,6 +68,7 @@ def build_native(require_modern_sdk=False):
         "CFBundlePackageType": "APPL", "CFBundleShortVersionString": Path("VERSION").read_text().strip(),
         "CFBundleVersion": Path("VERSION").read_text().strip(), "LSMinimumSystemVersion": "13.0",
         "CFBundleIconFile": "AppIcon",
+        "NDMGDisplayVersion": Path("DISPLAY_VERSION").read_text().strip(),
         "NSHighResolutionCapable": True, "NDMGModernGlassBuild": modern, "NDMGSDKVersion": sdk_version,
         "NSLocalNetworkUsageDescription": "Find shared drives on your local network and connect to the servers you choose.",
         "NSBonjourServices": ["_smb._tcp"],

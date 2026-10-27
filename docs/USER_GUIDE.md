@@ -181,3 +181,9 @@ Open **Updates** using the down-arrow-circle button in the toolbar. Choose **Eve
 A newer complete stable GitHub Release shows an in-app banner. **Downloads** opens that release's page containing installers; **Later** dismisses the banner until a future scheduled reminder. You download and install the app yourself. The app does not automatically download or install updates, request macOS notification permission, or run an updater while closed.
 
 Checks use the public GitHub API without GitHub login or transmitting saved servers, accounts or passwords. Internet failure is quiet and rate-limited checks wait until the next scheduled attempt. Code pushes alone do not trigger notifications; the release must have all installer files published.
+
+## Preview releases and support
+
+The public preview series starts at **Preview 1**. A separate increasing internal version keeps update ordering compatible with previous builds. Find both under **About & support → About MacNDMG** at the bottom of the sidebar.
+
+The same menu contains **Updates**, **Contact me** (Instagram), **Report a bug** (GitHub Issues) and **Buy me a coffee**. These open external pages; nothing is posted or paid automatically. Remove private server/account information from public bug reports.

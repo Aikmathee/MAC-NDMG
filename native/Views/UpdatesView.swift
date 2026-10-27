@@ -6,7 +6,7 @@ extension RootView {
             if updates.showBanner, let update = updates.available {
                 HStack(spacing: 12) {
                     Image(systemName: "arrow.down.circle").foregroundStyle(.blue)
-                    Text("MacNDMG \(update.version) is available.").font(.callout)
+                    Text("\(update.title) is available.").font(.callout)
                     Spacer()
                     Button("Downloads") { openURL(update.releaseURL) }.buttonStyle(FramedButtonStyle())
                     Button("Later") { updates.showBanner = false }.buttonStyle(FramedButtonStyle())
@@ -22,7 +22,7 @@ extension RootView {
                 Button("Done") { showingUpdates = false }.buttonStyle(FramedButtonStyle())
                     .keyboardShortcut(.cancelAction)
             }
-            Text("MacNDMG \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")")
+            Text("MacNDMG \(AppReleaseInfo.displayVersion)")
                 .foregroundStyle(.secondary)
             Picker("Check for updates", selection: $updates.intervalDays) {
                 Text("Every day").tag(1)

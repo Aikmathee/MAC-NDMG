@@ -34,6 +34,7 @@ def main():
     checksum = output / 'SHA256SUMS.txt'
     checksum.write_text(''.join(f'{expected[f.name]}  {f.name}\n' for f in files))
     files.append(checksum)
+    display_version = (ROOT / 'DISPLAY_VERSION').read_text().strip()
     notes = (ROOT / 'docs' / 'releases' / f'{tag}.md').read_text()
     base = f'https://api.github.com/repos/{repo}'
 
@@ -52,7 +53,7 @@ def main():
     if release and not release['draft']:
         raise SystemExit('This version is already published. Use a new version; do not overwrite downloads.')
     if release is None:
-        release = api('POST', base + '/releases', {'tag_name': tag, 'name': f'MacNDMG {version}',
+        release = api('POST', base + '/releases', {'tag_name': tag, 'name': f'MacNDMG {display_version}',
                        'body': notes, 'draft': True, 'prerelease': False})
     release_url = base + f"/releases/{release['id']}"
     existing = api('GET', release_url + '/assets?per_page=100')

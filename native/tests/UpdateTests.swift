@@ -57,6 +57,13 @@ import Foundation
         let current = UpdateStore(defaults: defaults, currentVersion: "2.4.0", fetch: { release })
         await current.check(now: start)
         precondition(current.available == nil && !current.showBanner)
+        defaults.removePersistentDomain(forName: suite)
+        var preview = GitHubRelease(tag_name: "v2.3.9", draft: false, prerelease: false, assets: assets)
+        preview.name = "MacNDMG Preview 1"
+        let previewStore = UpdateStore(defaults: defaults, currentVersion: "2.3.8", fetch: { preview })
+        await previewStore.check(now: start)
+        precondition(previewStore.available?.version == "2.3.9")
+        precondition(previewStore.available?.title == "MacNDMG Preview 1")
         print("Passed update version, complete-release, daily/48h cadence, restart, off/manual, offline and current-version checks")
     }
 }

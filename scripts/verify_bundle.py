@@ -22,6 +22,8 @@ def main():
     with (app / 'Contents/Info.plist').open('rb') as handle:
         info = plistlib.load(handle)
     assert info['CFBundleShortVersionString'] == (ROOT / 'VERSION').read_text().strip()
+    if 'NDMGDisplayVersion' in info:
+        assert info['NDMGDisplayVersion'] == (ROOT / 'DISPLAY_VERSION').read_text().strip()
     if args.require_modern_sdk:
         assert info.get('NDMGModernGlassBuild') is True, 'Release must enable typed Liquid Glass APIs'
         assert int(info['NDMGSDKVersion'].split('.')[0]) >= 26
