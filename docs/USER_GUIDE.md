@@ -173,3 +173,11 @@ Discovery also reads NetBIOS server names from SMB hosts. This covers machines F
 Connection-service requests have time limits: 45 seconds for regular operations, 90 seconds for discovery and 180 seconds for finding a moved share. If a request times out, check the network or VPN and try again. A timeout does not guarantee macOS cancelled a mount or unmount; check the Connected page, which refreshes from the actual mount table. MacNDMG does not force an unmount or quit other apps.
 
 Stopping a group shows both unresolved and unattempted drives. Successfully connected drives stay connected.
+
+## Update reminders
+
+Open **Updates** using the down-arrow-circle button in the toolbar. Choose **Every day** (default), **Every 2 days**, or **Off**. Checks happen while MacNDMG is open, with the schedule retained across restarts. **Check now** is available even when automatic checks are off.
+
+A newer complete stable GitHub Release shows an in-app banner. **Downloads** opens that release's page containing installers; **Later** dismisses the banner until a future scheduled reminder. You download and install the app yourself. The app does not automatically download or install updates, request macOS notification permission, or run an updater while closed.
+
+Checks use the public GitHub API without GitHub login or transmitting saved servers, accounts or passwords. Internet failure is quiet and rate-limited checks wait until the next scheduled attempt. Code pushes alone do not trigger notifications; the release must have all installer files published.

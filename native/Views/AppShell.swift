@@ -18,6 +18,10 @@ extension RootView {
             Button { store.showingHelp = true } label: { Label("Help", systemImage: "questionmark.circle") }
                 .help("Help")
         }
+        ToolbarItem(placement: .automatic) {
+            Button { showingUpdates = true } label: { Label("Updates", systemImage: "arrow.down.circle") }
+                .help("Updates")
+        }
         ToolbarItemGroup(placement: .primaryAction) {
             if store.showingGroups {
                 Button { store.editGroup() } label: { Label("New group", systemImage: "plus.rectangle.on.folder") }

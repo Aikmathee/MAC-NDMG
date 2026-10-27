@@ -823,6 +823,9 @@ struct RootView: View {
             : appearance == "light" ? NSAppearance(named: .aqua) : nil
     }
     @StateObject var store = DriveStore()
+    @StateObject var updates = UpdateStore()
+    @State var showingUpdates = false
+    @Environment(\.openURL) var openURL
     @Environment(\.accessibilityReduceMotion) var reduceMotion
     @State var columnVisibility: NavigationSplitViewVisibility = .all
     @State var expandedGroupIDs = Set<String>()
@@ -832,6 +835,7 @@ struct RootView: View {
                 .navigationSplitViewColumnWidth(min: 210, ideal: 240, max: 320)
         } detail: {
             VStack(spacing: 0) {
+                updateBanner
                 if store.selectedServerIDs.count > 1 { multiServerPage }
                 else if store.showingGroups { groupsPage }
                 else if store.showingConnected { connectedPage }
@@ -857,8 +861,10 @@ struct RootView: View {
         .onChange(of: appearance) { _ in applyAppearance() }
         .task { await store.start() }
         .task { await store.monitorMounts() }
+        .task { await updates.monitor() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await store.refreshMounted() }
+            Task { await updates.check() }
         }
         .sheet(item: $store.authServer, onDismiss: { store.authenticationDismissed() }) { server in authenticationSheet(server) }
         .sheet(isPresented: $store.showingGroupEditor) { groupEditor }
@@ -873,6 +879,7 @@ struct RootView: View {
         } message: { Text("This removes the saved group. Its drives stay connected.") }
         .sheet(isPresented: $store.showingAdd) { addSheet }
         .sheet(isPresented: $store.showingActivity) { activitySheet }
+        .sheet(isPresented: $showingUpdates) { updatesSheet }
         .sheet(isPresented: $store.showingHelp) { appHelp }
         .sheet(isPresented: $store.showingRecovery) { driveRecoverySheet }
         .confirmationDialog("Eject \(store.pendingEjectVolumes?.count ?? 0) drives?", isPresented: $store.showingEjectConfirmation) {

@@ -47,6 +47,10 @@ jobs:
         run: |
           xcrun swiftc native/ServiceProcess.swift native/tests/ServiceProcessTests.swift -o /tmp/macndmg-service-tests
           /tmp/macndmg-service-tests
+      - name: Test update reminders
+        run: |
+          xcrun swiftc native/UpdatePolicy.swift native/UpdateStore.swift native/tests/UpdateTests.swift -o /tmp/macndmg-update-tests
+          /tmp/macndmg-update-tests
       - name: Install build tools
         run: python -m pip install -r requirements.txt
       - name: Build native app
